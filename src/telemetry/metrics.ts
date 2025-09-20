@@ -6,43 +6,44 @@ const metricsRegistered: { started: boolean } = { started: false };
 export const orderReplacementCounter = new Counter({
   name: 'orders_replaced_total',
   help: 'Count of order replacements by side',
-  labelNames: ['side'] as const,
+  labelNames: ['client_id', 'side'] as const,
 });
 
 export const orderCancelCounter = new Counter({
   name: 'orders_cancelled_total',
   help: 'Count of order cancellations by side',
-  labelNames: ['side'] as const,
+  labelNames: ['client_id', 'side'] as const,
 });
 
 export const fillCounter = new Counter({
   name: 'fills_total',
   help: 'Count of fills by side',
-  labelNames: ['side'] as const,
+  labelNames: ['client_id', 'side'] as const,
 });
 
 export const orderLatency = new Histogram({
   name: 'order_latency_ms',
   help: 'Latency from placement to completion (ms)',
-  labelNames: ['side'] as const,
+  labelNames: ['client_id', 'side'] as const,
   buckets: [1000, 5000, 15000, 60000, 120000, 300000],
 });
 
 export const apiErrorCounter = new Counter({
   name: 'api_errors_total',
   help: 'API error counter',
-  labelNames: ['type'] as const,
+  labelNames: ['client_id', 'type'] as const,
 });
 
 export const pnlGauge = new Gauge({
   name: 'pnl_realized_usd',
   help: 'Realized P&L in USD',
+  labelNames: ['client_id'] as const,
 });
 
 export const inventoryGauge = new Gauge({
   name: 'inventory_base',
   help: 'Current base inventory levels',
-  labelNames: ['asset'] as const,
+  labelNames: ['client_id', 'asset'] as const,
 });
 
 export function startMetricsServer(port = Number(process.env.METRICS_PORT || 9100)) {

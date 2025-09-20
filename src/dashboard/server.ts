@@ -1,5 +1,6 @@
 import http from 'http';
 import { Pool } from 'pg';
+import { CONFIG } from '../config';
 
 let serverStarted = false;
 
@@ -8,6 +9,7 @@ function renderHtml(data: {
   orders: any[];
   guard: any;
   pnl: number;
+  clientId: string;
 }) {
   const runSection = data.run
     ? `<h2>Latest Run (${data.run.run_id})</h2>
@@ -62,7 +64,7 @@ function renderHtml(data: {
     </style>
   </head>
   <body>
-    <h1>TradeBot Dashboard</h1>
+    <h1>TradeBot Dashboard — Client ${data.clientId}</h1>
     ${runSection}
     ${ordersTable}
     ${guard}
@@ -72,16 +74,19 @@ function renderHtml(data: {
   </html>`;
 }
 
-async function fetchDashboardData(pool: Pool) {
-  const runRes = await pool.query('SELECT * FROM bot_runs ORDER BY started_at DESC LIMIT 1');
+async function fetchDashboardData(pool: Pool, clientId: string) {
+  const runRes = await pool.query(
+    'SELECT * FROM bot_runs WHERE client_id = $1 ORDER BY started_at DESC LIMIT 1',
+    [clientId]
+  );
   const run = runRes.rows[0] ?? null;
-  const guardRes = await pool.query('SELECT * FROM bot_guard_state WHERE id = 1');
+  const guardRes = await pool.query('SELECT * FROM bot_guard_state WHERE client_id = $1', [clientId]);
   const guard = guardRes.rows[0] ?? null;
   const orders = run
     ? (
         await pool.query(
-          `SELECT * FROM bot_orders WHERE run_id = $1 ORDER BY created_at DESC LIMIT 50`,
-          [run.run_id]
+          `SELECT * FROM bot_orders WHERE run_id = $1 AND client_id = $2 ORDER BY created_at DESC LIMIT 50`,
+          [run.run_id, clientId]
         )
       ).rows
     : [];
@@ -91,23 +96,28 @@ async function fetchDashboardData(pool: Pool) {
     orders,
     guard,
     pnl: guard ? Number(guard.global_pnl || 0) : 0,
+    clientId,
   };
 }
 
-export function startDashboardServer(pool: Pool, port = Number(process.env.DASHBOARD_PORT || 9102)) {
+export function startDashboardServer(
+  pool: Pool,
+  port = Number(process.env.DASHBOARD_PORT || 9102),
+  clientId = process.env.DASHBOARD_CLIENT_ID || CONFIG.RUN.CLIENT_ID || 'default'
+) {
   if (serverStarted) return;
   serverStarted = true;
   const server = http.createServer(async (req, res) => {
     try {
       if (req.url === '/' && req.method === 'GET') {
-        const data = await fetchDashboardData(pool);
+        const data = await fetchDashboardData(pool, clientId);
         const html = renderHtml(data);
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(html);
         return;
       }
       if (req.url === '/api/status' && req.method === 'GET') {
-        const data = await fetchDashboardData(pool);
+        const data = await fetchDashboardData(pool, clientId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(data));
         return;

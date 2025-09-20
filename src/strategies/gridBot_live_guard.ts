@@ -1,7 +1,12 @@
 // src/strategies/gridBot_live_guard.ts
 import { getExchange } from "../exchanges/ccxtClient";
 import { Telegram } from "../alerts/telegram";
-import { logger } from "../utils/logger";
+import { logger, setLogContext } from "../utils/logger";
+import { getPool } from "../db/pool";
+import { runMigrations } from "../db/migrations";
+import { CONFIG } from "../config";
+import { ClientConfigService } from "../services/clientConfig";
+import { circuitBreaker } from "../guard/circuitBreaker";
 
 type Candle = [number, number, number, number, number, number];
 
@@ -64,7 +69,47 @@ export async function runGuardedGrid(
   apiKey?: string,
   apiSecret?: string
 ) {
-  const ex = getExchange(apiKey, apiSecret);
+  const pool = getPool();
+  await runMigrations(pool);
+  const clientId = CONFIG.RUN.CLIENT_ID;
+  const clientConfigService = new ClientConfigService(pool, {
+    allowedClientId: clientId,
+    defaultExchange: CONFIG.DEFAULT_EXCHANGE,
+  });
+  setLogContext({ clientId });
+  const clientProfile = await clientConfigService.getClientProfile(clientId);
+  circuitBreaker.configureForClient(clientProfile.guard, clientId);
+  let effectiveApiKey = apiKey;
+  let effectiveApiSecret = apiSecret;
+  let effectivePassphrase: string | null | undefined = undefined;
+
+  if (!effectiveApiKey || !effectiveApiSecret) {
+    try {
+      const fullConfig = await clientConfigService.getClientConfig(clientId, clientProfile.exchangeId);
+      effectiveApiKey = fullConfig.exchange.apiKey;
+      effectiveApiSecret = fullConfig.exchange.apiSecret;
+      effectivePassphrase = fullConfig.exchange.passphrase;
+    } catch (err) {
+      if (!CONFIG.PAPER_MODE && (process.env.SUMMARY_ONLY || '').toLowerCase() !== 'true') {
+        throw err;
+      }
+      logger.warn("client_credentials_missing", {
+        event: "client_credentials_missing",
+        clientId,
+        exchangeId: clientProfile.exchangeId,
+        location: "guard",
+        mode: CONFIG.PAPER_MODE ? "paper" : "live",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const ex = getExchange({
+    exchangeId: clientProfile.exchangeId,
+    apiKey: effectiveApiKey,
+    apiSecret: effectiveApiSecret,
+    passphrase: effectivePassphrase,
+  });
   // fetch enough candles (smaPeriodHours + buffer)
   const limit = Math.max(100, gridParams.smaPeriodHours + 50);
   const raw: any = await ex.fetchOHLCV(pair, "1h", undefined, limit);

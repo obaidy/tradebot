@@ -23,9 +23,14 @@ describe('Persistence layer', () => {
     const ctx = createInMemoryPool();
     pool = ctx.pool;
     await runMigrations(pool);
-    runsRepo = new RunsRepository(pool);
-    ordersRepo = new OrdersRepository(pool);
-    fillsRepo = new FillsRepository(pool);
+    await pool.query(
+      `INSERT INTO clients (id, name, owner, plan, status)
+       VALUES ('client-a', 'Client A', 'tester', 'starter', 'active')
+       ON CONFLICT (id) DO NOTHING`
+    );
+    runsRepo = new RunsRepository(pool, 'client-a');
+    ordersRepo = new OrdersRepository(pool, 'client-a');
+    fillsRepo = new FillsRepository(pool, 'client-a');
   });
 
   afterEach(async () => {
@@ -38,7 +43,6 @@ describe('Persistence layer', () => {
     await runsRepo.createRun({
       runId: 'run-1',
       owner: 'tester',
-      clientId: 'client-a',
       exchange: 'binance',
       paramsJson: { foo: 'bar' },
       rateLimitMeta: { rateLimit: 1200 },
@@ -60,7 +64,6 @@ describe('Persistence layer', () => {
     await runsRepo.createRun({
       runId: 'run-2',
       owner: 'tester',
-      clientId: 'client-a',
       exchange: 'binance',
       paramsJson: {},
     });
@@ -98,7 +101,12 @@ describe('Persistence layer', () => {
       },
     });
 
-    const result = await reconcileOpenOrders(pool, { orders: ordersRepo, runs: runsRepo, fills: fillsRepo }, mock);
+    const result = await reconcileOpenOrders(
+      pool,
+      { orders: ordersRepo, runs: runsRepo, fills: fillsRepo },
+      mock,
+      'client-a'
+    );
     expect(result.reconciled).toBe(1);
 
     const updatedOrder = await pool.query('SELECT status, filled_amount FROM bot_orders WHERE id = $1', [order.id]);
@@ -114,7 +122,6 @@ describe('Persistence layer', () => {
     await runsRepo.createRun({
       runId: 'run-3',
       owner: 'tester',
-      clientId: 'client-a',
       exchange: 'binance',
       paramsJson: {},
     });
@@ -135,7 +142,12 @@ describe('Persistence layer', () => {
       }
     }
 
-    const result = await reconcileOpenOrders(pool, { orders: ordersRepo, runs: runsRepo, fills: fillsRepo }, new MissingExchange());
+    const result = await reconcileOpenOrders(
+      pool,
+      { orders: ordersRepo, runs: runsRepo, fills: fillsRepo },
+      new MissingExchange(),
+      'client-a'
+    );
     expect(result.mismatches).toBe(1);
 
     const updatedOrder = await pool.query('SELECT drift_reason FROM bot_orders WHERE id = $1', [order.id]);
@@ -143,13 +155,14 @@ describe('Persistence layer', () => {
   });
 
   it('persists guard state across restarts', async () => {
-    const guardRepo = new GuardStateRepository(pool);
+    const guardRepo = new GuardStateRepository(pool, 'client-a');
     const breaker = new CircuitBreaker({
       maxGlobalDrawdownUsd: 100,
       maxRunLossUsd: 50,
       maxApiErrorsPerMin: 10,
       staleTickerMs: 60_000,
     });
+    breaker.configureForClient(undefined, 'client-a');
     await breaker.initialize(guardRepo);
     await breaker.resetRun();
     breaker.recordFill('buy', 100, 0.01, 0);

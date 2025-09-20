@@ -29,7 +29,8 @@ export async function reconcileOpenOrders(
     runs: RunsRepository;
     fills: FillsRepository;
   },
-  exchange: ExchangeLike
+  exchange: ExchangeLike,
+  clientId: string
 ) {
   const openOrders = await repositories.orders.getOpenOrders();
   if (openOrders.length === 0) return { reconciled: 0, mismatches: 0 };
@@ -79,7 +80,7 @@ export async function reconcileOpenOrders(
           fillTimestamp: remote.timestamp ? new Date(remote.timestamp) : new Date(),
           raw: remote as any,
         });
-        fillCounter.labels(order.side).inc(fillAmount);
+        fillCounter.labels(clientId, order.side).inc(fillAmount);
         circuitBreaker.recordFill(order.side, averagePrice, fillAmount, remote.fee?.cost ?? 0);
       }
     } catch (err: any) {
@@ -95,6 +96,7 @@ export async function reconcileOpenOrders(
         orderId: order.id,
         runId: order.run_id,
         exchangeOrderId: order.exchange_order_id,
+        clientId,
         error: reason,
       });
       circuitBreaker.recordApiError('reconcile_fetch');
@@ -106,6 +108,7 @@ export async function reconcileOpenOrders(
       event: 'reconcile_summary',
       reconciled,
       mismatches,
+      clientId,
     });
   }
 

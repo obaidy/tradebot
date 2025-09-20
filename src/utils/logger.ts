@@ -30,12 +30,14 @@ function serializeMeta(meta: LogMeta) {
 }
 
 let ingestionWebhook: string | null = null;
+let baseMeta: Record<string, unknown> = {};
 
 function emit(level: LogLevel, msg: string, meta?: LogMeta) {
   const entry = {
     timestamp: new Date().toISOString(),
     level,
     msg,
+    ...baseMeta,
     ...serializeMeta(meta),
   };
   const line = JSON.stringify(entry);
@@ -82,4 +84,12 @@ export type Logger = typeof logger;
 
 export function setLogIngestionWebhook(url: string | null) {
   ingestionWebhook = url;
+}
+
+export function setLogContext(meta: Record<string, unknown>) {
+  baseMeta = { ...meta };
+}
+
+export function clearLogContext() {
+  baseMeta = {};
 }

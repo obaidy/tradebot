@@ -15,7 +15,8 @@ import { orderReplacementCounter, orderCancelCounter, fillCounter, orderLatency 
 import { circuitBreaker } from '../guard/circuitBreaker';
 import { killSwitch } from '../guard/killSwitch';
 import { GuardStateRepository } from '../db/guardStateRepo';
-import { logger } from '../utils/logger';
+import { logger, setLogContext } from '../utils/logger';
+import { ClientConfigService } from '../services/clientConfig';
 
 const ORDER_POLL_INTERVAL_MS = 5000;
 const ORDER_TIMEOUT_MS = 1000 * 60 * 30;
@@ -329,6 +330,7 @@ interface ExecutionMetrics {
 }
 
 export interface OrderExecutionContext {
+  clientId: string;
   exchange: ExchangeExecution;
   pair: string;
   plan: GridPlan;
@@ -395,7 +397,7 @@ export async function executeBuyLevels(context: OrderExecutionContext) {
       await context.limiter!.wait();
       if (killSwitch.isActive()) {
         context.metrics!.buyCancels += 1;
-        orderCancelCounter.labels('buy').inc();
+        orderCancelCounter.labels(context.clientId, 'buy').inc();
         throw new Error(`Kill switch active: ${killSwitch.getReason()}`);
       }
       const remainingTarget = Math.max(level.amount - state.totalFilled, context.marketMeta.stepSize);
@@ -455,6 +457,7 @@ export async function executeBuyLevels(context: OrderExecutionContext) {
     runId: context.plan.runId,
     pair: context.pair,
     metrics: context.metrics,
+    clientId: context.clientId,
   });
 }
 
@@ -465,7 +468,7 @@ async function cancelOpenOrdersForRun(context: OrderExecutionContext) {
     const side = (order.side as 'buy' | 'sell') || 'buy';
     try {
       await context.exchange.cancelOrder(order.exchange_order_id, context.pair);
-      orderCancelCounter.labels(side).inc();
+      orderCancelCounter.labels(context.clientId, side).inc();
       if (side === 'buy') context.metrics!.buyCancels += 1;
       else context.metrics!.sellCancels += 1;
       await context.ordersRepo.updateOrder({
@@ -480,6 +483,7 @@ async function cancelOpenOrdersForRun(context: OrderExecutionContext) {
         pair: context.pair,
         orderId: order.exchange_order_id,
         error: errorMessage(err),
+        clientId: context.clientId,
       });
       circuitBreaker.recordApiError('cancel_order');
     }
@@ -525,7 +529,7 @@ async function placeAndMonitorOrder(
   } catch (err) {
     circuitBreaker.recordApiError('create_buy_order');
     context.metrics!.buyCancels += 1;
-    orderCancelCounter.labels('buy').inc();
+    orderCancelCounter.labels(context.clientId, 'buy').inc();
     throw err;
   }
   await notify(`Placed BUY order ${pair} ${orderAmount}@${orderPrice} id:${exchangeOrder.id}`);
@@ -562,7 +566,7 @@ async function placeAndMonitorOrder(
     await sleep(pollInterval);
     if (killSwitch.isActive()) {
       context.metrics!.buyCancels += 1;
-      orderCancelCounter.labels('buy').inc();
+      orderCancelCounter.labels(context.clientId, 'buy').inc();
       throw new Error(`Kill switch active: ${killSwitch.getReason()}`);
     }
     let updated;
@@ -611,7 +615,7 @@ async function placeAndMonitorOrder(
         fillTimestamp: updated.timestamp ? new Date(updated.timestamp) : new Date(),
         raw: updated as any,
       });
-      fillCounter.labels('buy').inc(delta);
+      fillCounter.labels(context.clientId, 'buy').inc(delta);
       circuitBreaker.recordFill('buy', lastFillPrice, delta, updated.fee?.cost ?? 0);
       logger.info('buy_fill_delta', {
         event: 'buy_fill_delta',
@@ -652,9 +656,10 @@ async function placeAndMonitorOrder(
         orderId: exchangeOrder.id,
         amount: orderFilled,
         price: lastFillPrice,
+        clientId: context.clientId,
       });
       await notify(`BUY filled ${pair} ${orderFilled}@${lastFillPrice} (order ${exchangeOrder.id})`);
-      orderLatency.labels('buy').observe(Date.now() - orderStart);
+      orderLatency.labels(context.clientId, 'buy').observe(Date.now() - orderStart);
       return { needsReplacement: false };
     }
 
@@ -669,7 +674,7 @@ async function placeAndMonitorOrder(
         raw: updated as any,
       });
       context.metrics!.buyReplacements += 1;
-      orderReplacementCounter.labels('buy').inc();
+      orderReplacementCounter.labels(context.clientId, 'buy').inc();
 
       const pendingTp = state.totalFilled - state.tpPlaced;
       if (pendingTp > marketMeta.stepSize / 2) {
@@ -699,6 +704,7 @@ async function placeAndMonitorOrder(
         orderId: exchangeOrder.id,
         remaining: orderRemaining,
         nextPrice: adjustedPrice,
+        clientId: context.clientId,
       });
 
       return {
@@ -740,7 +746,7 @@ async function placeTakeProfit(params: {
     });
     circuitBreaker.recordApiError('create_sell_order');
     context.metrics!.sellCancels += 1;
-    orderCancelCounter.labels('sell').inc();
+    orderCancelCounter.labels(context.clientId, 'sell').inc();
     return;
   }
   await context.sendNotification?.(`Placed SELL TP ${context.pair} ${sellAmount}@${sellPrice} id:${sellOrder.id}`);
@@ -822,7 +828,7 @@ async function monitorSellOrder(params: {
     await sleep(pollInterval);
     if (killSwitch.isActive()) {
       context.metrics!.sellCancels += 1;
-      orderCancelCounter.labels('sell').inc();
+      orderCancelCounter.labels(context.clientId, 'sell').inc();
       await context.exchange.cancelOrder(currentOrder.id, context.pair).catch(() => {});
       await context.ordersRepo.updateOrder({
         orderId: currentDbOrderId,
@@ -831,7 +837,7 @@ async function monitorSellOrder(params: {
         filledAmount: totalFilled,
         remainingAmount: Math.max(targetAmount - totalFilled, 0),
       });
-      orderLatency.labels('sell').observe(Date.now() - orderStart);
+      orderLatency.labels(context.clientId, 'sell').observe(Date.now() - orderStart);
       return;
     }
 
@@ -878,7 +884,7 @@ async function monitorSellOrder(params: {
         fillTimestamp: updated.timestamp ? new Date(updated.timestamp) : new Date(),
         raw: updated as any,
       });
-      fillCounter.labels('sell').inc(delta);
+      fillCounter.labels(context.clientId, 'sell').inc(delta);
       circuitBreaker.recordFill('sell', updated.average ?? updated.price ?? initialPrice, delta, updated.fee?.cost ?? 0);
       logger.info('tp_fill_delta', {
         event: 'tp_fill_delta',
@@ -903,7 +909,7 @@ async function monitorSellOrder(params: {
         raw: updated as any,
       });
       await notify(`TP filled ${context.pair} ${totalFilled}@${updated.average ?? updated.price ?? initialPrice} (order ${currentOrder.id})`);
-      orderLatency.labels('sell').observe(Date.now() - orderStart);
+      orderLatency.labels(context.clientId, 'sell').observe(Date.now() - orderStart);
       return;
     }
 
@@ -915,7 +921,7 @@ async function monitorSellOrder(params: {
     if (needsReplacement && attempt < replaceMaxRetries) {
       await context.exchange.cancelOrder(currentOrder.id, context.pair).catch(() => {});
       context.metrics!.sellReplacements += 1;
-      orderReplacementCounter.labels('sell').inc();
+      orderReplacementCounter.labels(context.clientId, 'sell').inc();
       await context.ordersRepo.updateOrder({
         orderId: currentDbOrderId,
         status: 'cancelled',
@@ -957,8 +963,8 @@ async function monitorSellOrder(params: {
           error: errorMessage(err),
         });
         context.metrics!.sellCancels += 1;
-        orderCancelCounter.labels('sell').inc();
-        orderLatency.labels('sell').observe(Date.now() - orderStart);
+        orderCancelCounter.labels(context.clientId, 'sell').inc();
+        orderLatency.labels(context.clientId, 'sell').observe(Date.now() - orderStart);
         return;
       }
       await context.sendNotification?.(`Replaced TP ${context.pair} ${remaining}@${nextPrice} id:${newOrder.id}`);
@@ -984,7 +990,7 @@ async function monitorSellOrder(params: {
 
     if (needsReplacement && attempt >= replaceMaxRetries) {
       context.metrics!.sellCancels += 1;
-      orderCancelCounter.labels('sell').inc();
+      orderCancelCounter.labels(context.clientId, 'sell').inc();
       await context.exchange.cancelOrder(currentOrder.id, context.pair).catch(() => {});
       await context.ordersRepo.updateOrder({
         orderId: currentDbOrderId,
@@ -1001,7 +1007,7 @@ async function monitorSellOrder(params: {
         correlationId,
         remaining,
       });
-      orderLatency.labels('sell').observe(Date.now() - orderStart);
+      orderLatency.labels(context.clientId, 'sell').observe(Date.now() - orderStart);
       return;
     }
   }
@@ -1179,12 +1185,48 @@ export async function runGridOnce(
 ): Promise<GridPlan | void> {
   const pool = getPool();
   await runMigrations(pool);
-  const runsRepo = new RunsRepository(pool);
-  const ordersRepo = new OrdersRepository(pool);
-  const fillsRepo = new FillsRepository(pool);
-  const inventoryRepo = new InventoryRepository(pool);
-  const guardRepo = new GuardStateRepository(pool);
-  const ex = getExchange(apiKey, apiSecret);
+  const clientId = CONFIG.RUN.CLIENT_ID;
+  const clientConfigService = new ClientConfigService(pool, {
+    allowedClientId: clientId,
+    defaultExchange: CONFIG.DEFAULT_EXCHANGE,
+  });
+  setLogContext({ clientId });
+  const clientProfile = await clientConfigService.getClientProfile(clientId);
+  circuitBreaker.configureForClient(clientProfile.guard, clientId);
+  let effectiveApiKey = apiKey;
+  let effectiveApiSecret = apiSecret;
+  let effectivePassphrase: string | null | undefined = undefined;
+
+  if (!effectiveApiKey || !effectiveApiSecret) {
+    try {
+      const fullConfig = await clientConfigService.getClientConfig(clientId, clientProfile.exchangeId);
+      effectiveApiKey = fullConfig.exchange.apiKey;
+      effectiveApiSecret = fullConfig.exchange.apiSecret;
+      effectivePassphrase = fullConfig.exchange.passphrase;
+    } catch (err) {
+      if (!CONFIG.PAPER_MODE && (process.env.SUMMARY_ONLY || '').toLowerCase() !== 'true') {
+        throw err;
+      }
+      logger.warn('client_credentials_missing', {
+        event: 'client_credentials_missing',
+        clientId,
+        exchangeId: clientProfile.exchangeId,
+        mode: CONFIG.PAPER_MODE ? 'paper' : 'live',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  const runsRepo = new RunsRepository(pool, clientId);
+  const ordersRepo = new OrdersRepository(pool, clientId);
+  const fillsRepo = new FillsRepository(pool, clientId);
+  const inventoryRepo = new InventoryRepository(pool, clientId);
+  const guardRepo = new GuardStateRepository(pool, clientId);
+  const ex = getExchange({
+    exchangeId: clientProfile.exchangeId,
+    apiKey: effectiveApiKey,
+    apiSecret: effectiveApiSecret,
+    passphrase: effectivePassphrase,
+  });
   const summaryOnly = (process.env.SUMMARY_ONLY || '').toLowerCase() === 'true';
   const runMode: GridPlan['runMode'] = summaryOnly ? 'summary' : CONFIG.PAPER_MODE ? 'paper' : 'live';
   const timestampProvider = createTimestampProvider(runMode !== 'live');
@@ -1195,7 +1237,7 @@ export async function runGridOnce(
     throw new Error(`Kill switch active: ${killSwitch.getReason()}`);
   }
 
-  await reconcileOpenOrders(pool, { orders: ordersRepo, runs: runsRepo, fills: fillsRepo }, ex as any);
+  await reconcileOpenOrders(pool, { orders: ordersRepo, runs: runsRepo, fills: fillsRepo }, ex as any, clientId);
 
   const ticker = await ex.fetchTicker(pair);
   const mid = (ticker.bid + ticker.ask) / 2;
@@ -1206,12 +1248,16 @@ export async function runGridOnce(
   const baseGridSizePct = Number(process.env.GRID_SIZE_PCT) || 0.02;
   const perTradeUsdEnv = process.env.PER_TRADE_USD;
   const perTradePctEnv = process.env.PER_TRADE;
+  const bankrollUsd = clientProfile.risk.bankrollUsd;
+  const defaultPerTradePct = clientProfile.risk.maxPerTradePct;
   let perTradeUsdOrig =
     perTradeUsdEnv !== undefined
       ? Number(perTradeUsdEnv)
+      : clientProfile.risk.perTradeUsd !== undefined
+      ? clientProfile.risk.perTradeUsd
       : perTradePctEnv !== undefined
-      ? CONFIG.RISK.BANKROLL_USD * Number(perTradePctEnv)
-      : CONFIG.RISK.BANKROLL_USD * CONFIG.RISK.MAX_PER_TRADE_PCT;
+      ? bankrollUsd * Number(perTradePctEnv)
+      : bankrollUsd * defaultPerTradePct;
 
   let adjustedGridSteps = baseGridSteps;
   let adjustedGridSizePct = baseGridSizePct;
@@ -1345,7 +1391,6 @@ export async function runGridOnce(
   await runsRepo.createRun({
     runId: plan.runId,
     owner: CONFIG.RUN.OWNER,
-    clientId: CONFIG.RUN.CLIENT_ID,
     exchange: (ex as any).id ?? CONFIG.DEFAULT_EXCHANGE,
     paramsJson: {
       gridSteps,
@@ -1533,12 +1578,14 @@ export async function runGridOnce(
       pair,
       mode: plan.runMode,
       csvPath: CSV_PATH,
+      clientId,
     });
     await runsRepo.updateStatus({ runId: plan.runId, status: 'completed' });
     return plan;
   }
   const sharedLimiter = new RateLimiter(Math.max(0, Number(process.env.ORDER_RATE_INTERVAL_MS || DEFAULT_ORDER_RATE_INTERVAL_MS)));
   const executionContext: OrderExecutionContext = {
+    clientId,
     exchange: ex as ExchangeExecution,
     pair,
     plan,

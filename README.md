@@ -36,7 +36,8 @@ Key environment variables and defaults are captured in `src/config.ts`. Frequent
 | `PAPER_MODE_BASE_TS` | `2020-01-01T00:00:00.000Z` | Base timestamp used to keep paper CSV outputs deterministic. |
 | `RUN_ID` | _(generated)_ | Override the auto run identifier (useful for reproducible dry-runs/tests). |
 | `RUN_OWNER` | `local` | Identifier for who initiated the run (stored in DB). |
-| `CLIENT_ID` | `default` | Customer/account identifier tied to the run. |
+| `CLIENT_ID` | `default` | Worker scope. Each bot process is locked to a single client and only reads that client's configuration + keys. |
+| `CLIENT_MASTER_KEY` | _(required)_ | 32-byte master secret (base64/hex/passphrase) used by the libsodium secret box to encrypt client API credentials. |
 | `ORDER_CONCURRENCY` | `3` | Max number of grid legs placed in parallel. |
 | `ORDER_RATE_INTERVAL_MS` | `250` | Minimum delay (ms) between order submissions. |
 | `ORDER_POLL_INTERVAL_MS` | `5000` | Poll interval (ms) when monitoring open orders (override for testing). |
@@ -54,6 +55,119 @@ Key environment variables and defaults are captured in `src/config.ts`. Frequent
 | `WALKFORWARD_CONFIG` | `configs/walkforward.json` | Alternate path for walk-forward automation config. |
 
 All new logs are structured JSON (`timestamp`, `level`, `msg`, plus `runId`, `pair`, etc.) so you can stream them directly into log aggregation or alerting systems.
+
+### Multi-tenant foundations
+
+- **Schema:** migrations now create `clients`, `client_api_credentials`, and client-scoped FKs on every trading table (`bot_runs`, `bot_orders`, `bot_fills`, `bot_inventory_snapshots`, `bot_guard_state`). A default client (`id=default`) is seeded automatically.
+- **Secrets:** set `CLIENT_MASTER_KEY` (base64/hex/or passphrase). A libsodium secret box encrypts API credentials before they land in Postgres. Rotate the master key by decrypting + re-encrypting rows.
+- **Worker scoping:** every process runs with a single `CLIENT_ID`. Repositories, guard state, and the `ClientConfigService` enforce that scope, so a worker cannot read or write another client's data even if misconfigured.
+- **Config loader:** `ClientConfigService` merges the client's limits/risk JSON with the runtime defaults, decrypts the requested exchange credentials, and hands `runGridOnce` a per-client config (risk sizing, exchange ID + keys, plan limits).
+- **Guard limits:** provide a `guard` object inside `limits` (e.g. `{ "guard": { "maxGlobalDrawdownUsd": 250, "maxRunLossUsd": 120, "maxApiErrorsPerMin": 8, "staleTickerMs": 180000 } }`) to override circuit-breaker thresholds per client.
+- **Telemetry:** Prometheus metrics and structured logs now include a `client_id` label for per-tenant dashboards and alerting.
+
+#### Seeding a client
+
+```bash
+# 1. ensure migrations ran (npm run dev or ts-node scripts)
+# 2. export secrets
+export CLIENT_ID=my-client
+export CLIENT_MASTER_KEY="base64-or-passphrase"
+
+# 3. upsert the client record + encrypted keys
+node -r ts-node/register <<'NODE'
+const { getPool } = require('./src/db/pool');
+const { runMigrations } = require('./src/db/migrations');
+const { ClientsRepository } = require('./src/db/clientsRepo');
+const { ClientConfigService } = require('./src/services/clientConfig');
+
+(async () => {
+  const pool = getPool();
+  await runMigrations(pool);
+  const clients = new ClientsRepository(pool);
+  await clients.upsert({
+    id: process.env.CLIENT_ID,
+    name: 'Demo Client',
+    owner: 'demo-owner',
+    plan: 'starter',
+    limits: { risk: { bankrollUsd: 500, maxPerTradePct: 0.02 } },
+  });
+  const service = new ClientConfigService(pool, { allowedClientId: process.env.CLIENT_ID });
+  await service.storeExchangeCredentials({
+    clientId: process.env.CLIENT_ID,
+    exchangeName: 'binance',
+    apiKey: process.env.EXCHANGE_API_KEY,
+    apiSecret: process.env.EXCHANGE_API_SECRET,
+    passphrase: process.env.EXCHANGE_API_PASSPHRASE || null,
+  });
+  console.log('client + secrets stored');
+  process.exit(0);
+})();
+NODE
+```
+
+> For paper runs you can omit API keys; the worker will warn but continue with public market data. Live mode requires encrypted credentials.
+
+#### Admin CLI helpers
+
+```
+# List all tenants (human readable)
+npm run client-admin -- list-clients
+
+# Show a single tenant as JSON (includes credential metadata)
+npm run client-admin -- show-client --id my-client --json
+
+# Upsert tenant metadata / limits
+npm run client-admin -- upsert-client --id my-client --name "Demo" --owner "ops" \
+  --plan starter --status active \
+  --limits '{"risk":{"bankrollUsd":500},"guard":{"maxGlobalDrawdownUsd":200}}'
+
+# Rotate encrypted API keys (CLIENT_MASTER_KEY must be set)
+npm run client-admin -- store-credentials --id my-client --exchange binance \
+  --api-key "$NEW_KEY" --api-secret "$NEW_SECRET"
+
+# Target a remote (e.g. staging) Postgres + master key in one liner
+PG_URL="postgres://user:pass@staging-host:5432/tradebot" \
+CLIENT_MASTER_KEY="$STAGING_MASTER" \
+npm run client-admin -- list-credentials --id my-client --json
+
+# Validate rotation by listing before/after storing new secrets
+PG_URL="..." CLIENT_MASTER_KEY="$STAGING_MASTER" npm run client-admin -- list-credentials --id my-client
+PG_URL="..." CLIENT_MASTER_KEY="$STAGING_MASTER" npm run client-admin -- store-credentials --id my-client \
+  --exchange binance --api-key "$ROTATED_KEY" --api-secret "$ROTATED_SECRET"
+PG_URL="..." CLIENT_MASTER_KEY="$STAGING_MASTER" npm run client-admin -- list-credentials --id my-client
+```
+
+#### Admin HTTP service
+
+When you need to delegate tenant management, run the lightweight HTTP bridge:
+
+```bash
+export PG_URL="postgres://user:pass@staging-host:5432/tradebot"
+export CLIENT_MASTER_KEY="$STAGING_MASTER"
+export ADMIN_API_TOKEN="super-secret-token"
+export ADMIN_PORT=9300
+
+npm run admin:server
+# -> Admin server listening on :9300
+```
+
+Every request must present the bearer token:
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_API_TOKEN" http://localhost:9300/clients
+
+curl -X PUT -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Demo","owner":"ops","limits":{"guard":{"maxGlobalDrawdownUsd":200}}}' \
+     http://localhost:9300/clients/my-client
+
+curl -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"exchangeName":"binance","apiKey":"key","apiSecret":"secret"}' \
+     http://localhost:9300/clients/my-client/credentials
+```
+
+> Tip: front the admin service with your API gateway / identity provider (e.g. Auth0, Cloudflare Access) to enforce SSO + audit logging before exposing it to operations teammates.
 
 ---
 

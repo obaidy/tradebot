@@ -5,7 +5,6 @@ export type RunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 export interface CreateRunInput {
   runId: string;
   owner: string;
-  clientId: string;
   exchange: string;
   paramsJson: Record<string, unknown>;
   rateLimitMeta?: Record<string, unknown> | null;
@@ -64,7 +63,7 @@ export interface InventorySnapshotInput {
 }
 
 export class RunsRepository {
-  constructor(private pool: Pool) {}
+  constructor(private pool: Pool, private clientId: string) {}
 
   async createRun(input: CreateRunInput) {
     const res = await this.pool.query(
@@ -84,7 +83,7 @@ export class RunsRepository {
       [
         input.runId,
         input.owner,
-        input.clientId,
+        this.clientId,
         input.exchange,
         input.paramsJson,
         input.rateLimitMeta ?? null,
@@ -100,30 +99,34 @@ export class RunsRepository {
       `UPDATE bot_runs
        SET status = $2,
            ended_at = $3
-       WHERE run_id = $1
+       WHERE run_id = $1 AND client_id = $4
        RETURNING *`,
-      [runId, status, endedAtValue]
+      [runId, status, endedAtValue, this.clientId]
     );
     return res.rows[0] ?? null;
   }
 
   async getActiveRuns() {
-    const res = await this.pool.query(`SELECT * FROM bot_runs WHERE status = 'running'`);
+    const res = await this.pool.query(
+      `SELECT * FROM bot_runs WHERE status = 'running' AND client_id = $1`,
+      [this.clientId]
+    );
     return res.rows;
   }
 }
 
 export class OrdersRepository {
-  constructor(private pool: Pool) {}
+  constructor(private pool: Pool, private clientId: string) {}
 
   async insertOrder(input: InsertOrderInput) {
     const res = await this.pool.query(
       `INSERT INTO bot_orders
-        (run_id, exchange_order_id, pair, side, price, amount, filled_amount, remaining_amount, status, correlation_id, raw)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        (run_id, client_id, exchange_order_id, pair, side, price, amount, filled_amount, remaining_amount, status, correlation_id, raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING *`,
       [
         input.runId,
+        this.clientId,
         input.exchangeOrderId ?? null,
         input.pair,
         input.side,
@@ -148,7 +151,7 @@ export class OrdersRepository {
            drift_reason = COALESCE($5, drift_reason),
            raw = COALESCE($6, raw),
            updated_at = NOW()
-       WHERE id = $1
+       WHERE id = $1 AND client_id = $7
        RETURNING *`,
       [
         input.orderId,
@@ -157,19 +160,24 @@ export class OrdersRepository {
         input.remainingAmount ?? null,
         input.driftReason ?? null,
         input.raw ?? null,
+        this.clientId,
       ]
     );
     return res.rows[0] ?? null;
   }
 
   async findByExchangeId(exchangeOrderId: string) {
-    const res = await this.pool.query(`SELECT * FROM bot_orders WHERE exchange_order_id = $1`, [exchangeOrderId]);
+    const res = await this.pool.query(
+      `SELECT * FROM bot_orders WHERE exchange_order_id = $1 AND client_id = $2`,
+      [exchangeOrderId, this.clientId]
+    );
     return res.rows[0] ?? null;
   }
 
   async getOpenOrders() {
     const res = await this.pool.query(
-      `SELECT * FROM bot_orders WHERE status IN ('placed','open','partial')`
+      `SELECT * FROM bot_orders WHERE status IN ('placed','open','partial') AND client_id = $1`,
+      [this.clientId]
     );
     return res.rows;
   }
@@ -177,30 +185,33 @@ export class OrdersRepository {
   async getOpenOrdersForRun(runId: string, side?: 'buy' | 'sell') {
     if (side) {
       const res = await this.pool.query(
-        `SELECT * FROM bot_orders WHERE run_id = $1 AND side = $2 AND status IN ('placed','open','partial')`,
-        [runId, side]
+        `SELECT * FROM bot_orders
+         WHERE run_id = $1 AND client_id = $3 AND side = $2 AND status IN ('placed','open','partial')`,
+        [runId, side, this.clientId]
       );
       return res.rows;
     }
     const res = await this.pool.query(
-      `SELECT * FROM bot_orders WHERE run_id = $1 AND status IN ('placed','open','partial')`,
-      [runId]
+      `SELECT * FROM bot_orders
+       WHERE run_id = $1 AND client_id = $2 AND status IN ('placed','open','partial')`,
+      [runId, this.clientId]
     );
     return res.rows;
   }
 }
 
 export class FillsRepository {
-  constructor(private pool: Pool) {}
+  constructor(private pool: Pool, private clientId: string) {}
 
   async insertFill(input: InsertFillInput) {
     const res = await this.pool.query(
-      `INSERT INTO bot_fills (order_id, run_id, pair, price, amount, fee, side, fill_timestamp, raw)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO bot_fills (order_id, run_id, client_id, pair, price, amount, fee, side, fill_timestamp, raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [
         input.orderId,
         input.runId,
+        this.clientId,
         input.pair,
         input.price,
         input.amount,
@@ -215,15 +226,16 @@ export class FillsRepository {
 }
 
 export class InventoryRepository {
-  constructor(private pool: Pool) {}
+  constructor(private pool: Pool, private clientId: string) {}
 
   async insertSnapshot(input: InventorySnapshotInput) {
     const res = await this.pool.query(
-      `INSERT INTO bot_inventory_snapshots (run_id, base_asset, quote_asset, base_balance, quote_balance, exposure_usd, metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO bot_inventory_snapshots (run_id, client_id, base_asset, quote_asset, base_balance, quote_balance, exposure_usd, metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING *`,
       [
         input.runId,
+        this.clientId,
         input.baseAsset,
         input.quoteAsset,
         input.baseBalance ?? null,

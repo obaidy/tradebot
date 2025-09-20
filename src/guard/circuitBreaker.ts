@@ -2,7 +2,7 @@ import { killSwitch } from './killSwitch';
 import { apiErrorCounter, pnlGauge } from '../telemetry/metrics';
 import { GuardStateRepository, GuardState } from '../db/guardStateRepo';
 
-interface CircuitConfig {
+export interface CircuitConfig {
   maxGlobalDrawdownUsd: number;
   maxRunLossUsd: number;
   maxApiErrorsPerMin: number;
@@ -22,15 +22,43 @@ export class CircuitBreaker {
   private state: GuardState = { ...DEFAULT_STATE };
   private repo: GuardStateRepository | null = null;
   private initialized = false;
+  private baseConfig: CircuitConfig;
+  private activeConfig: CircuitConfig;
+  private clientId: string | null = null;
 
-  constructor(private config: CircuitConfig) {}
+  constructor(config: CircuitConfig) {
+    this.baseConfig = { ...config };
+    this.activeConfig = { ...config };
+  }
+
+  private normalize(overrides?: Partial<CircuitConfig>) {
+    const pick = (key: keyof CircuitConfig) => {
+      const value = overrides?.[key];
+      if (value === undefined || value === null) return this.baseConfig[key];
+      const num = Number(value);
+      return Number.isFinite(num) && num > 0 ? num : this.baseConfig[key];
+    };
+    this.activeConfig = {
+      maxGlobalDrawdownUsd: pick('maxGlobalDrawdownUsd'),
+      maxRunLossUsd: pick('maxRunLossUsd'),
+      maxApiErrorsPerMin: pick('maxApiErrorsPerMin'),
+      staleTickerMs: pick('staleTickerMs'),
+    };
+  }
+
+  configureForClient(overrides?: Partial<CircuitConfig>, clientId?: string) {
+    this.normalize(overrides);
+    if (clientId) {
+      this.clientId = clientId;
+    }
+  }
 
   async initialize(repo: GuardStateRepository) {
     if (this.initialized && this.repo === repo) return;
     this.repo = repo;
     this.state = await repo.load();
     this.initialized = true;
-    pnlGauge.set(this.state.globalPnl);
+    pnlGauge.labels(this.clientId ?? 'unknown').set(this.state.globalPnl);
   }
 
   async resetRun() {
@@ -50,10 +78,14 @@ export class CircuitBreaker {
     const now = Date.now();
     this.state.apiErrorTimestamps.push(now);
     this.state.apiErrorTimestamps = this.state.apiErrorTimestamps.filter((ts) => now - ts <= 60 * 1000);
-    apiErrorCounter.labels(type).inc();
+    apiErrorCounter.labels(this.clientId ?? 'unknown', type).inc();
     this.persist().catch(() => {});
-    if (this.state.apiErrorTimestamps.length >= this.config.maxApiErrorsPerMin) {
-      killSwitch.activate(`API error rate exceeded (${this.state.apiErrorTimestamps.length}/min)`).catch(() => {});
+    if (this.state.apiErrorTimestamps.length >= this.activeConfig.maxApiErrorsPerMin) {
+      killSwitch
+        .activate(
+          `API error rate exceeded (${this.state.apiErrorTimestamps.length}/min, limit ${this.activeConfig.maxApiErrorsPerMin})`
+        )
+        .catch(() => {});
     }
   }
 
@@ -71,12 +103,14 @@ export class CircuitBreaker {
       this.state.runPnl += realized;
       this.state.inventoryBase -= amount;
       this.state.inventoryCost -= avgCost * amount;
-      pnlGauge.set(this.state.globalPnl);
-      if (this.state.globalPnl <= -this.config.maxGlobalDrawdownUsd) {
-        killSwitch.activate(`Global drawdown exceeded ${this.config.maxGlobalDrawdownUsd}`).catch(() => {});
+      pnlGauge.labels(this.clientId ?? 'unknown').set(this.state.globalPnl);
+      if (this.state.globalPnl <= -this.activeConfig.maxGlobalDrawdownUsd) {
+        killSwitch
+          .activate(`Global drawdown exceeded ${this.activeConfig.maxGlobalDrawdownUsd}`)
+          .catch(() => {});
       }
-      if (this.state.runPnl <= -this.config.maxRunLossUsd) {
-        killSwitch.activate(`Run loss exceeded ${this.config.maxRunLossUsd}`).catch(() => {});
+      if (this.state.runPnl <= -this.activeConfig.maxRunLossUsd) {
+        killSwitch.activate(`Run loss exceeded ${this.activeConfig.maxRunLossUsd}`).catch(() => {});
       }
     }
     this.persist().catch(() => {});
@@ -85,7 +119,7 @@ export class CircuitBreaker {
   checkStaleData() {
     if (!this.initialized) return;
     const now = Date.now();
-    if (now - this.state.lastTickerTs > this.config.staleTickerMs) {
+    if (now - this.state.lastTickerTs > this.activeConfig.staleTickerMs) {
       killSwitch.activate('Market data stale').catch(() => {});
     }
   }

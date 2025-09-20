@@ -23,9 +23,14 @@ describe('executeBuyLevels', () => {
     const ctx = createPool();
     pool = ctx.pool;
     await runMigrations(pool);
-    runsRepo = new RunsRepository(pool);
-    ordersRepo = new OrdersRepository(pool);
-    fillsRepo = new FillsRepository(pool);
+    await pool.query(
+      `INSERT INTO clients (id, name, owner, plan, status)
+       VALUES ('client-a', 'Client A', 'tester', 'starter', 'active')
+       ON CONFLICT (id) DO NOTHING`
+    );
+    runsRepo = new RunsRepository(pool, 'client-a');
+    ordersRepo = new OrdersRepository(pool, 'client-a');
+    fillsRepo = new FillsRepository(pool, 'client-a');
     process.env.ORDER_CONCURRENCY = '2';
     process.env.ORDER_RATE_INTERVAL_MS = '0';
     process.env.REPLACE_SLIPPAGE_PCT = '0.01';
@@ -41,7 +46,6 @@ describe('executeBuyLevels', () => {
     await runsRepo.createRun({
       runId,
       owner: 'tester',
-      clientId: 'client-a',
       exchange: 'mock',
       paramsJson: {},
     });
@@ -100,6 +104,7 @@ describe('executeBuyLevels', () => {
 
     const appendRows: any[] = [];
     const context: OrderExecutionContext = {
+      clientId: 'client-a',
       exchange,
       pair: 'BTC/USDT',
       plan: {

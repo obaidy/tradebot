@@ -19,12 +19,21 @@ const DEFAULT_STATE: GuardState = {
 };
 
 export class GuardStateRepository {
-  constructor(private pool: Pool) {}
+  constructor(private pool: Pool, private clientId: string) {}
+
+  private async ensureRow() {
+    await this.pool.query(
+      `INSERT INTO bot_guard_state (client_id, global_pnl, run_pnl, inventory_base, inventory_cost, last_ticker_ts, api_error_timestamps)
+       VALUES ($1, 0, 0, 0, 0, $2, '[]'::jsonb)
+       ON CONFLICT (client_id) DO NOTHING`,
+      [this.clientId, Date.now()]
+    );
+  }
 
   async load(): Promise<GuardState> {
-    const res = await this.pool.query('SELECT * FROM bot_guard_state WHERE id = 1');
+    await this.ensureRow();
+    const res = await this.pool.query('SELECT * FROM bot_guard_state WHERE client_id = $1', [this.clientId]);
     if (!res.rows.length) {
-      await this.pool.query('INSERT INTO bot_guard_state (id) VALUES (1)');
       return { ...DEFAULT_STATE };
     }
     const row = res.rows[0];
@@ -42,16 +51,17 @@ export class GuardStateRepository {
 
   async save(state: GuardState) {
     await this.pool.query(
-      `UPDATE bot_guard_state
-       SET global_pnl = $2,
-           run_pnl = $3,
-           inventory_base = $4,
-           inventory_cost = $5,
-           last_ticker_ts = $6,
-           api_error_timestamps = $7
-       WHERE id = $1`,
+      `INSERT INTO bot_guard_state (client_id, global_pnl, run_pnl, inventory_base, inventory_cost, last_ticker_ts, api_error_timestamps)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+       ON CONFLICT (client_id) DO UPDATE
+       SET global_pnl = EXCLUDED.global_pnl,
+           run_pnl = EXCLUDED.run_pnl,
+           inventory_base = EXCLUDED.inventory_base,
+           inventory_cost = EXCLUDED.inventory_cost,
+           last_ticker_ts = EXCLUDED.last_ticker_ts,
+           api_error_timestamps = EXCLUDED.api_error_timestamps`,
       [
-        1,
+        this.clientId,
         state.globalPnl,
         state.runPnl,
         state.inventoryBase,

@@ -9,7 +9,9 @@
     "test": "node -r ./test/polyfill-crypto.js ./node_modules/vitest/vitest.mjs",
     "walkforward": "ts-node scripts/walkforward.ts",
     "deploy:paper": "ts-node scripts/deployPaper.ts",
-    "deploy:live": "ts-node scripts/deployLive.ts"
+    "deploy:live": "ts-node scripts/deployLive.ts",
+    "client-admin": "ts-node src/admin/clientCli.ts",
+    "admin:server": "ts-node src/admin/server.ts"
   },
   "dependencies": {
     "axios": "^1.3.0",
@@ -19,12 +21,14 @@
     "ethers": "^6.0.0",
     "gh": "^2.8.9",
     "ioredis": "^5.3.1",
+    "libsodium-wrappers": "^0.7.15",
     "pg": "^8.10.0",
     "prom-client": "^15.1.3",
     "winston": "^3.8.2"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
+    "@types/libsodium-wrappers": "^0.7.14",
     "@types/node": "^18.0.0",
     "@types/pg": "^8.15.5",
     "eslint": "^8.0.0",
