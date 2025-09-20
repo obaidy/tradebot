@@ -1,0 +1,32 @@
+[
+  {
+    "name": "candidate-1-btc",
+    "pair": "BTC/USDT",
+    "gridSteps": 8,
+    "k": 0.5,
+    "tp": 0.05,
+    "perTrade": 0.005,
+    "smaPeriodHours": 24,
+    "meanRevertPct": 0.01,
+    "minAtrPct": 0.002,
+    "PAPER_MODE": true,
+    "BANKROLL_USD": 200,
+    "DAILY_LOSS_STOP_PCT": 0.02,
+    "MAX_CONCURRENT_POSITIONS": 2
+  },
+  {
+    "name": "candidate-2-btc",
+    "pair": "BTC/USDT",
+    "gridSteps": 8,
+    "k": 1,
+    "tp": 0.05,
+    "perTrade": 0.01,
+    "smaPeriodHours": 24,
+    "meanRevertPct": 0.01,
+    "minAtrPct": 0.002,
+    "PAPER_MODE": true,
+    "BANKROLL_USD": 200,
+    "DAILY_LOSS_STOP_PCT": 0.02,
+    "MAX_CONCURRENT_POSITIONS": 2
+  }
+]
