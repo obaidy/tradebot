@@ -95,13 +95,14 @@ export class RunsRepository {
   }
 
   async updateStatus({ runId, status, endedAt }: UpdateRunStatusInput) {
+    const endedAtValue = endedAt ?? new Date();
     const res = await this.pool.query(
       `UPDATE bot_runs
        SET status = $2,
-           ended_at = CASE WHEN $3 IS NULL THEN ended_at ELSE $3 END
+           ended_at = $3
        WHERE run_id = $1
        RETURNING *`,
-      [runId, status, endedAt ?? new Date()]
+      [runId, status, endedAtValue]
     );
     return res.rows[0] ?? null;
   }
