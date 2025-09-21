@@ -29,7 +29,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const send = async () => {
     try {
-      const metrics = await fetchMetrics(session.user!.id);
+      const clientId = session.user?.id;
+      if (!clientId) {
+        res.write(`event: error\ndata: ${JSON.stringify({ error: 'missing_client_id' })}\n\n`);
+        return;
+      }
+      const metrics = await fetchMetrics(clientId);
       res.write(`data: ${JSON.stringify({ ...metrics, timestamp: Date.now() })}\n\n`);
     } catch (err) {
       res.write(`event: error\ndata: ${JSON.stringify({ error: err instanceof Error ? err.message : 'metrics_failed' })}\n\n`);

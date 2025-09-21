@@ -1,6 +1,7 @@
 import Head from 'next/head';
 import { signOut, useSession } from 'next-auth/react';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/router';
 import { DashboardLayout } from '../../components/layout/DashboardLayout';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -137,6 +138,13 @@ async function fetchJson(url: string, options?: RequestInit) {
 
 export default function Dashboard() {
   const { data: session, status } = useSession({ required: true });
+  const router = useRouter();
+  
+  // Admin mode detection
+  const isAdminMode = useMemo(() => {
+    return router.query.admin === 'true';
+  }, [router.query.admin]);
+  
   const [plans, setPlans] = useState<Plan[]>([]);
   const [credentials, setCredentials] = useState<any[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
@@ -192,7 +200,7 @@ export default function Dashboard() {
     () => requiredDocumentsStatus.filter((doc) => !doc.accepted),
     [requiredDocumentsStatus]
   );
-  const needsAgreement = pendingDocuments.length > 0;
+  const needsAgreement = !isAdminMode && pendingDocuments.length > 0;
 
   useEffect(() => {
     if (!clientId || status === 'loading') return;
@@ -809,10 +817,20 @@ export default function Dashboard() {
   return (
     <>
       <Head>
-        <title>TradeBot Portal · Operator Console</title>
+        <title>TradeBot Portal · {isAdminMode ? 'Admin Console' : 'Operator Console'}</title>
       </Head>
       <DashboardLayout topRightSlot={topRightSlot}>
         <div style={{ display: 'grid', gap: '1.75rem' }}>
+          {isAdminMode && (
+            <Card elevation="none" glass style={{ border: '1px solid rgba(234,179,8,0.35)', background: 'rgba(234,179,8,0.12)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Badge tone="warning">Admin Mode</Badge>
+                <p style={{ margin: 0, color: '#FDE047' }}>
+                  You are operating in admin mode with bypass privileges. Membership restrictions are disabled.
+                </p>
+              </div>
+            </Card>
+          )}
           {message ? (
             <Card elevation="none" glass style={{ border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)' }}>
               <p style={{ margin: 0, color: '#BBF7D0' }}>{message}</p>
@@ -1061,7 +1079,7 @@ export default function Dashboard() {
                 <Button
                   variant="secondary"
                   onClick={handleResume}
-                  disabled={!clientState.isPaused || clientState.killRequested || billingInfo.autoPaused}
+                  disabled={!clientState.isPaused || clientState.killRequested || (!isAdminMode && billingInfo.autoPaused)}
                 >
                   Resume
                 </Button>

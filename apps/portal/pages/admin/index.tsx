@@ -169,6 +169,50 @@ export default function AdminDashboard() {
         render: (row) =>
           `${row.runs.runs} runs${row.runs.last_started ? ` · ${new Date(row.runs.last_started).toLocaleString()}` : ''}`,
       },
+      {
+        key: 'actions',
+        header: 'Actions',
+        sortable: false,
+        render: (row) => (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {row.isPaused ? (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => handleUserAction(row.id, 'resume')}
+                style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+              >
+                Resume
+              </Button>
+            ) : (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => handleUserAction(row.id, 'pause')}
+                style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+              >
+                Pause
+              </Button>
+            )}
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => handleUserAction(row.id, 'upgrade')}
+              style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+            >
+              Upgrade
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => handleUserAction(row.id, 'kill')}
+              style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', color: '#ef4444' }}
+            >
+              Kill
+            </Button>
+          </div>
+        ),
+      },
     ],
     []
   );
@@ -324,6 +368,59 @@ export default function AdminDashboard() {
       ])
     );
 
+  const handleUserAction = useCallback(async (clientId: string, action: 'pause' | 'resume' | 'upgrade' | 'kill') => {
+    try {
+      setLoading(true);
+      const actor = session?.user?.email ?? session?.user?.id ?? 'admin';
+      
+      switch (action) {
+        case 'pause':
+          await fetch('/api/admin/user-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId, action: 'pause', actor }),
+          });
+          setMessage(`Client ${clientId} paused successfully`);
+          break;
+        case 'resume':
+          await fetch('/api/admin/user-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId, action: 'resume', actor }),
+          });
+          setMessage(`Client ${clientId} resumed successfully`);
+          break;
+        case 'upgrade':
+          const newPlan = window.prompt('Enter new plan ID (starter, pro):', 'pro');
+          if (newPlan) {
+            await fetch('/api/admin/user-action', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clientId, action: 'upgrade', actor, planId: newPlan }),
+            });
+            setMessage(`Client ${clientId} upgraded to ${newPlan} successfully`);
+          }
+          break;
+        case 'kill':
+          if (window.confirm(`Are you sure you want to kill client ${clientId}? This action cannot be undone.`)) {
+            await fetch('/api/admin/user-action', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clientId, action: 'kill', actor }),
+            });
+            setMessage(`Client ${clientId} killed successfully`);
+          }
+          break;
+      }
+      // Reload data after action
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to ${action} client`);
+    } finally {
+      setLoading(false);
+    }
+  }, [session, loadData]);
+
   const topRightSlot = (
     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
       <div style={{ textAlign: 'right' }}>
@@ -369,9 +466,14 @@ export default function AdminDashboard() {
               <h1 style={{ margin: 0 }}>Operations dashboard</h1>
               <p style={{ margin: 0, color: '#94A3B8' }}>Monitor fleet health, billing posture, and guard telemetry.</p>
             </div>
-            <Button variant="ghost" onClick={loadData}>
-              Refresh now
-            </Button>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <Button variant="primary" onClick={() => window.open('/app?admin=true', '_blank')}>
+                Admin Trading
+              </Button>
+              <Button variant="ghost" onClick={loadData}>
+                Refresh now
+              </Button>
+            </div>
           </div>
 
           {trendPoints && trendPoints.length > 0 ? (

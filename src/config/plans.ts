@@ -1,4 +1,4 @@
-export type PlanId = 'starter' | 'pro';
+export type PlanId = 'starter' | 'pro' | 'admin';
 
 export interface PlanDefinition {
   id: PlanId | string;
@@ -68,6 +68,29 @@ export const PLAN_DEFINITIONS: PlanDefinition[] = [
         maxRunLossUsd: 400,
         maxApiErrorsPerMin: 12,
         staleTickerMs: 90_000,
+      },
+    },
+  },
+  {
+    id: 'admin',
+    name: 'Admin',
+    priceUsd: 0,
+    description: 'Unlimited admin access with full trading capabilities.',
+    features: ['Unlimited trading', 'All exchanges', 'Full admin privileges', 'Bypass all restrictions'],
+    stripePriceId: undefined, // Admin plans don't use Stripe
+    limits: {
+      maxSymbols: 999,
+      allowLiveTrading: true,
+      paperOnly: false,
+      allowedExchanges: ['binance', 'kraken', 'coinbasepro', 'bybit', 'okx'],
+      maxPerTradeUsd: 100000,
+      maxExposureUsd: 1000000,
+      maxDailyVolumeUsd: 10000000,
+      guard: {
+        maxGlobalDrawdownUsd: 100000,
+        maxRunLossUsd: 50000,
+        maxApiErrorsPerMin: 100,
+        staleTickerMs: 30_000,
       },
     },
   },
