@@ -186,10 +186,30 @@ export async function runMigrations(pool: Pool) {
       `ALTER TABLE bot_inventory_snapshots ADD CONSTRAINT fk_bot_inventory_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE`
     );
   }
-  await pool.query(`ALTER TABLE bot_guard_state DROP CONSTRAINT IF EXISTS bot_guard_state_pkey`);
-  await pool.query(`ALTER TABLE bot_guard_state DROP CONSTRAINT IF EXISTS bot_guard_state_client_id_fkey`);
-  await pool.query(`ALTER TABLE bot_guard_state ADD PRIMARY KEY (client_id)`);
-  await pool.query(`ALTER TABLE bot_guard_state ADD CONSTRAINT fk_bot_guard_state_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE`);
+  const hasGuardPk = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'bot_guard_state_pkey'`
+  );
+  if (hasGuardPk.rows.length === 0) {
+    await pool.query(`ALTER TABLE bot_guard_state ADD PRIMARY KEY (client_id)`);
+  }
+
+  const hasLegacyGuardFk = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'bot_guard_state_client_id_fkey'`
+  );
+  if (hasLegacyGuardFk.rows.length) {
+    await pool.query(`ALTER TABLE bot_guard_state DROP CONSTRAINT bot_guard_state_client_id_fkey`);
+  }
+
+  const hasGuardFk = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_guard_state_client'`
+  );
+  if (hasGuardFk.rows.length === 0) {
+    await pool.query(`
+      ALTER TABLE bot_guard_state
+      ADD CONSTRAINT fk_bot_guard_state_client
+      FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+    `);
+  }
 
   await pool.query(`INSERT INTO bot_guard_state (client_id) VALUES ('default') ON CONFLICT (client_id) DO NOTHING`);
 
