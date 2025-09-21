@@ -115,6 +115,59 @@ export default function AdminDashboard() {
     [summary]
   );
 
+  const handleUserAction = useCallback(async (clientId: string, action: 'pause' | 'resume' | 'upgrade' | 'kill') => {
+    try {
+      setLoading(true);
+      const actor = session?.user?.email ?? session?.user?.id ?? 'admin';
+      
+      switch (action) {
+        case 'pause':
+          await fetch('/api/admin/user-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId, action: 'pause', actor }),
+          });
+          setMessage(`Client ${clientId} paused successfully`);
+          break;
+        case 'resume':
+          await fetch('/api/admin/user-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId, action: 'resume', actor }),
+          });
+          setMessage(`Client ${clientId} resumed successfully`);
+          break;
+        case 'upgrade':
+          const newPlan = window.prompt('Enter new plan ID (starter, pro):', 'pro');
+          if (newPlan) {
+            await fetch('/api/admin/user-action', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clientId, action: 'upgrade', actor, planId: newPlan }),
+            });
+            setMessage(`Client ${clientId} upgraded to ${newPlan} successfully`);
+          }
+          break;
+        case 'kill':
+          if (window.confirm(`Are you sure you want to kill client ${clientId}? This action cannot be undone.`)) {
+            await fetch('/api/admin/user-action', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clientId, action: 'kill', actor }),
+            });
+            setMessage(`Client ${clientId} killed successfully`);
+          }
+          break;
+      }
+      // Reload data after action
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to ${action} client`);
+    } finally {
+      setLoading(false);
+    }
+  }, [session, loadData]);
+
   const summaryColumns = useMemo<Column<SummaryRow>[]>(
     () => [
       {
@@ -178,7 +231,6 @@ export default function AdminDashboard() {
             {row.isPaused ? (
               <Button 
                 variant="ghost" 
-                size="sm"
                 onClick={() => handleUserAction(row.id, 'resume')}
                 style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
               >
@@ -187,7 +239,6 @@ export default function AdminDashboard() {
             ) : (
               <Button 
                 variant="ghost" 
-                size="sm"
                 onClick={() => handleUserAction(row.id, 'pause')}
                 style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
               >
@@ -196,7 +247,6 @@ export default function AdminDashboard() {
             )}
             <Button 
               variant="ghost" 
-              size="sm"
               onClick={() => handleUserAction(row.id, 'upgrade')}
               style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
             >
@@ -204,7 +254,6 @@ export default function AdminDashboard() {
             </Button>
             <Button 
               variant="ghost" 
-              size="sm"
               onClick={() => handleUserAction(row.id, 'kill')}
               style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', color: '#ef4444' }}
             >
@@ -214,7 +263,7 @@ export default function AdminDashboard() {
         ),
       },
     ],
-    []
+    [handleUserAction]
   );
 
   const billingColumns = useMemo<Column<BillingRow>[]>(
@@ -367,59 +416,6 @@ export default function AdminDashboard() {
         row.killRequested ? 'Yes' : 'No',
       ])
     );
-
-  const handleUserAction = useCallback(async (clientId: string, action: 'pause' | 'resume' | 'upgrade' | 'kill') => {
-    try {
-      setLoading(true);
-      const actor = session?.user?.email ?? session?.user?.id ?? 'admin';
-      
-      switch (action) {
-        case 'pause':
-          await fetch('/api/admin/user-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId, action: 'pause', actor }),
-          });
-          setMessage(`Client ${clientId} paused successfully`);
-          break;
-        case 'resume':
-          await fetch('/api/admin/user-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId, action: 'resume', actor }),
-          });
-          setMessage(`Client ${clientId} resumed successfully`);
-          break;
-        case 'upgrade':
-          const newPlan = window.prompt('Enter new plan ID (starter, pro):', 'pro');
-          if (newPlan) {
-            await fetch('/api/admin/user-action', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clientId, action: 'upgrade', actor, planId: newPlan }),
-            });
-            setMessage(`Client ${clientId} upgraded to ${newPlan} successfully`);
-          }
-          break;
-        case 'kill':
-          if (window.confirm(`Are you sure you want to kill client ${clientId}? This action cannot be undone.`)) {
-            await fetch('/api/admin/user-action', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clientId, action: 'kill', actor }),
-            });
-            setMessage(`Client ${clientId} killed successfully`);
-          }
-          break;
-      }
-      // Reload data after action
-      await loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to ${action} client`);
-    } finally {
-      setLoading(false);
-    }
-  }, [session, loadData]);
 
   const topRightSlot = (
     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

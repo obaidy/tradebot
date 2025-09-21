@@ -11,3 +11,8 @@ dist/
 npm-debug.log
 coverage/
 reports/releases/
+
+# Next.js build artifacts
+apps/portal/.next/
+apps/portal/.next/*
+.next/

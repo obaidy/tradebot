@@ -824,7 +824,7 @@ export default function Dashboard() {
           {isAdminMode && (
             <Card elevation="none" glass style={{ border: '1px solid rgba(234,179,8,0.35)', background: 'rgba(234,179,8,0.12)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Badge tone="warning">Admin Mode</Badge>
+                <Badge tone="primary">Admin Mode</Badge>
                 <p style={{ margin: 0, color: '#FDE047' }}>
                   You are operating in admin mode with bypass privileges. Membership restrictions are disabled.
                 </p>
