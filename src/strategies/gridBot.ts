@@ -1178,19 +1178,27 @@ export function adjustPerTradeToExchange(
  * - If PAPER_MODE: simulates fills and TPs and logs to CSV
  * - If LIVE: attempts to place limit buys, polls until fill or timeout, then places TP
  */
+export interface RunGridOptions {
+  clientId?: string;
+  runMode?: 'summary' | 'paper' | 'live';
+  summaryOnly?: boolean;
+  actor?: string;
+}
+
 export async function runGridOnce(
   pair: string,
   apiKey?: string,
-  apiSecret?: string
+  apiSecret?: string,
+  options: RunGridOptions = {}
 ): Promise<GridPlan | void> {
   const pool = getPool();
   await runMigrations(pool);
-  const clientId = CONFIG.RUN.CLIENT_ID;
+  const clientId = options.clientId ?? CONFIG.RUN.CLIENT_ID;
   const clientConfigService = new ClientConfigService(pool, {
     allowedClientId: clientId,
     defaultExchange: CONFIG.DEFAULT_EXCHANGE,
   });
-  setLogContext({ clientId });
+  setLogContext({ clientId, actor: options.actor });
   const clientProfile = await clientConfigService.getClientProfile(clientId);
   circuitBreaker.configureForClient(clientProfile.guard, clientId);
   let effectiveApiKey = apiKey;
@@ -1227,8 +1235,9 @@ export async function runGridOnce(
     apiSecret: effectiveApiSecret,
     passphrase: effectivePassphrase,
   });
-  const summaryOnly = (process.env.SUMMARY_ONLY || '').toLowerCase() === 'true';
-  const runMode: GridPlan['runMode'] = summaryOnly ? 'summary' : CONFIG.PAPER_MODE ? 'paper' : 'live';
+  const summaryOnly = options.summaryOnly ?? (process.env.SUMMARY_ONLY || '').toLowerCase() === 'true';
+  const runMode: GridPlan['runMode'] =
+    options.runMode ?? (summaryOnly ? 'summary' : CONFIG.PAPER_MODE ? 'paper' : 'live');
   const timestampProvider = createTimestampProvider(runMode !== 'live');
 
   await circuitBreaker.initialize(guardRepo);

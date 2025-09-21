@@ -92,6 +92,25 @@ export default function Dashboard() {
     };
   }, [clientId, status]);
 
+  useEffect(() => {
+    if (!clientId || typeof window === 'undefined') return undefined;
+    const source = new EventSource('/api/client/metrics/stream');
+    source.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setMetrics(data);
+      } catch {
+        // ignore malformed events
+      }
+    };
+    source.onerror = () => {
+      source.close();
+    };
+    return () => {
+      source.close();
+    };
+  }, [clientId]);
+
   async function handlePlanChange(planId: string) {
     try {
       setMessage(null);

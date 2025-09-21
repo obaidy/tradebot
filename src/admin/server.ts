@@ -15,6 +15,7 @@ import {
   storeClientCredentials,
   upsertClientRecord,
 } from './clientAdminActions';
+import { enqueuePaperRun, isPaperRunQueueEnabled } from '../jobs/paperRunQueue';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -297,11 +298,21 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
       if (paperRunMatch) {
         const clientId = decodeURIComponent(paperRunMatch[1]);
         if (ctx.method === 'POST') {
+          const actor = resolveActor(ctx.req);
           await auditRepo.addEntry({
             clientId,
-            actor: resolveActor(ctx.req),
+            actor,
             action: 'paper_run_requested',
             metadata: ctx.body ?? null,
+          });
+          if (!isPaperRunQueueEnabled) {
+            throw new Error('paper_run_queue_disabled');
+          }
+          const body = ctx.body ?? {};
+          await enqueuePaperRun({
+            clientId,
+            pair: body.pair,
+            actor,
           });
           sendJson(res, 202, { status: 'queued' });
           return;
@@ -335,6 +346,66 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
             },
             lastTickerTs: row.last_ticker_ts ? Number(row.last_ticker_ts) : null,
           });
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const metricsStreamMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/metrics\/stream$/);
+      if (metricsStreamMatch) {
+        const clientId = decodeURIComponent(metricsStreamMatch[1]);
+        if (ctx.method === 'GET') {
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+          });
+          res.write('\n');
+
+          const sendSnapshot = async () => {
+            const guardRes = await pool.query(
+              'SELECT global_pnl, run_pnl, inventory_base, inventory_cost, last_ticker_ts FROM bot_guard_state WHERE client_id = $1',
+              [clientId]
+            );
+            if (!guardRes.rows.length) {
+              res.write(`event: error\ndata: ${JSON.stringify({ error: 'client_metrics_not_found' })}\n\n`);
+              return;
+            }
+            const row = guardRes.rows[0];
+            const payload = {
+              clientId,
+              pnl: {
+                global: Number(row.global_pnl || 0),
+                run: Number(row.run_pnl || 0),
+              },
+              inventory: {
+                base: Number(row.inventory_base || 0),
+                cost: Number(row.inventory_cost || 0),
+              },
+              lastTickerTs: row.last_ticker_ts ? Number(row.last_ticker_ts) : null,
+              timestamp: Date.now(),
+            };
+            res.write(`data: ${JSON.stringify(payload)}\n\n`);
+          };
+
+          const heartbeat = setInterval(() => {
+            res.write(': heartbeat\n\n');
+          }, 15000);
+
+          const interval = setInterval(() => {
+            sendSnapshot().catch((err) => {
+              res.write(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+            });
+          }, 5000);
+
+          req.on('close', () => {
+            clearInterval(interval);
+            clearInterval(heartbeat);
+            res.end();
+          });
+
+          await sendSnapshot();
           return;
         }
         methodNotAllowed(res);

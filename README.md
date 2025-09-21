@@ -185,12 +185,30 @@ curl -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" \
   ```
 - The landing page provides Auth0 sign-in and routes authenticated users to `/app`, where plan selection, API key workflows, and metric dashboards will be layered in the next steps.
 
+#### Paper-run queue & worker
+
+- Paper validations are dispatched to a BullMQ queue (Redis). Set `REDIS_URL` to a reachable Redis instance (local or managed cloud).
+- Start the worker alongside your services:
+  ```bash
+  npm run paper:worker
+  ```
+- When a user requests a paper run, the admin API enqueues a job. The worker executes `runGridOnce` for that client, logging `paper_run_started`, `paper_run_completed`, or `paper_run_failed` entries in `client_audit_log`.
+
 #### Supplying exchange API keys (customer-facing)
 
 - Generate trade-only keys inside your exchange (no withdrawal, IP lock if available).
 - Paste the key/secret into the encrypted form inside the portal. Secrets never touch the browser’s local storage and are encrypted server-side with the tenant master key defined by `CLIENT_MASTER_KEY`.
 - Rotate keys from the same UI. Each rotation appears in the audit trail (`Action = credentials_rotated`) so operators can verify who changed what.
 - After storing keys, trigger a paper run from the dashboard to validate connectivity before requesting live access.
+- Metrics on the dashboard update in near-real time via Server-Sent Events (`/api/client/metrics/stream`), so users can monitor paper results without refreshing.
+
+### Deployment guidance
+
+1. **Admin API**: deploy `src/admin/server.ts` to a Node host (Fly.io, Render, Railway). Provide `PG_URL`, `CLIENT_MASTER_KEY`, `ADMIN_API_TOKEN`, `REDIS_URL`, and `ADMIN_PORT`.
+2. **Paper worker**: run `npm run paper:worker` on a background process with the same env vars; ensure it has Redis/Postgres access.
+3. **Portal (Next.js)**: deploy `apps/portal` to Vercel/Netlify. Configure Auth0 with production callback/logout URLs (`https://portal.yourdomain.com/api/auth/callback/auth0`). Set `AUTH0_*`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ADMIN_API_URL`, and `ADMIN_API_TOKEN` in the hosting platform.
+4. **Traffic flow**: Portal → NextAuth (Auth0) → Admin API (bearer token) → Postgres/Redis → Worker.
+5. Update DNS/SSL accordingly and rotate `ADMIN_API_TOKEN`/`CLIENT_MASTER_KEY` via your secrets manager.
 
 ---
 

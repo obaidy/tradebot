@@ -15,6 +15,7 @@
     "deploy:live": "ts-node scripts/deployLive.ts",
     "client-admin": "ts-node src/admin/clientCli.ts",
     "admin:server": "ts-node src/admin/server.ts",
+    "paper:worker": "ts-node src/jobs/paperRunWorker.ts",
     "portal:dev": "npm run dev --workspace portal",
     "portal:build": "npm run build --workspace portal",
     "portal:start": "npm run start --workspace portal"
