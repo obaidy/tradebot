@@ -85,6 +85,15 @@ const MIGRATION_QUERIES: string[] = [
       last_ticker_ts BIGINT,
       api_error_timestamps JSONB NOT NULL DEFAULT '[]'::jsonb
     );`,
+  `CREATE TABLE IF NOT EXISTS client_audit_log (
+      id SERIAL PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      actor TEXT NOT NULL,
+      action TEXT NOT NULL,
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_client_audit_client_created ON client_audit_log(client_id, created_at DESC);`,
   `CREATE INDEX IF NOT EXISTS idx_bot_orders_run_status ON bot_orders(run_id, status);`,
   `CREATE INDEX IF NOT EXISTS idx_bot_fills_run ON bot_fills(run_id);`
 ];
@@ -136,71 +145,47 @@ export async function runMigrations(pool: Pool) {
   await pool.query(`ALTER TABLE bot_inventory_snapshots ALTER COLUMN client_id SET NOT NULL`);
   await pool.query(`ALTER TABLE bot_guard_state ALTER COLUMN client_id SET NOT NULL`);
 
-  await pool.query(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_runs_client'
-      ) THEN
-        ALTER TABLE bot_runs
-        ADD CONSTRAINT fk_bot_runs_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE;
-      END IF;
-    END$$
-  `);
-  await pool.query(`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_bot_orders_run_client'
-      ) THEN
-        ALTER TABLE bot_orders DROP CONSTRAINT fk_bot_orders_run_client;
-      END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_orders_client'
-      ) THEN
-        ALTER TABLE bot_orders
-        ADD CONSTRAINT fk_bot_orders_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE;
-      END IF;
-    END$$
-  `);
-  await pool.query(`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_bot_fills_client'
-      ) THEN
-        ALTER TABLE bot_fills DROP CONSTRAINT fk_bot_fills_client;
-      END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_fills_client_new'
-      ) THEN
-        ALTER TABLE bot_fills
-        ADD CONSTRAINT fk_bot_fills_client_new FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE;
-      END IF;
-    END$$
-  `);
-  await pool.query(`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_bot_inventory_client'
-      ) THEN
-        ALTER TABLE bot_inventory_snapshots DROP CONSTRAINT fk_bot_inventory_client;
-      END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_inventory_client_new'
-      ) THEN
-        ALTER TABLE bot_inventory_snapshots
-        ADD CONSTRAINT fk_bot_inventory_client_new FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE;
-      END IF;
-    END$$
-  `);
+  const hasRunsFk = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_runs_client'`
+  );
+  if (hasRunsFk.rows.length === 0) {
+    await pool.query(
+      `ALTER TABLE bot_runs ADD CONSTRAINT fk_bot_runs_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE`
+    );
+  }
+
+  const hasOldOrdersFk = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_orders_run_client'`
+  );
+  if (hasOldOrdersFk.rows.length) {
+    await pool.query(`ALTER TABLE bot_orders DROP CONSTRAINT fk_bot_orders_run_client`);
+  }
+  const hasOrdersFk = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_orders_client'`
+  );
+  if (hasOrdersFk.rows.length === 0) {
+    await pool.query(
+      `ALTER TABLE bot_orders ADD CONSTRAINT fk_bot_orders_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE`
+    );
+  }
+
+  const hasFillsFk = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_fills_client'`
+  );
+  if (hasFillsFk.rows.length === 0) {
+    await pool.query(
+      `ALTER TABLE bot_fills ADD CONSTRAINT fk_bot_fills_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE`
+    );
+  }
+
+  const hasInventoryFk = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_inventory_client'`
+  );
+  if (hasInventoryFk.rows.length === 0) {
+    await pool.query(
+      `ALTER TABLE bot_inventory_snapshots ADD CONSTRAINT fk_bot_inventory_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE`
+    );
+  }
   await pool.query(`ALTER TABLE bot_guard_state DROP CONSTRAINT IF EXISTS bot_guard_state_pkey`);
   await pool.query(`ALTER TABLE bot_guard_state DROP CONSTRAINT IF EXISTS bot_guard_state_client_id_fkey`);
   await pool.query(`ALTER TABLE bot_guard_state ADD PRIMARY KEY (client_id)`);

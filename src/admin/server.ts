@@ -5,6 +5,8 @@ import { runMigrations } from '../db/migrations';
 import { ClientsRepository, ClientApiCredentialsRepository } from '../db/clientsRepo';
 import { ClientConfigService } from '../services/clientConfig';
 import { initSecretManager } from '../secrets/secretManager';
+import { ClientAuditLogRepository } from '../db/auditLogRepo';
+import { PLAN_DEFINITIONS, getPlanById } from '../config/plans';
 import {
   deleteClientCredentials,
   fetchClientSnapshot,
@@ -60,6 +62,16 @@ function sendJson(res: ServerResponse, status: number, payload: unknown) {
   res.end(JSON.stringify(payload));
 }
 
+function getHeader(req: IncomingMessage, name: string) {
+  const value = req.headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0];
+  return value ?? null;
+}
+
+function resolveActor(req: IncomingMessage) {
+  return getHeader(req, 'x-actor') || 'unknown-actor';
+}
+
 function notFound(res: ServerResponse) {
   sendJson(res, 404, { error: 'not_found' });
 }
@@ -106,6 +118,7 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
   const clientsRepo = new ClientsRepository(pool);
   const credsRepo = new ClientApiCredentialsRepository(pool);
   const configService = new ClientConfigService(pool);
+  const auditRepo = new ClientAuditLogRepository(pool);
 
   const server = http.createServer(async (req, res) => {
     const authHeader = req.headers.authorization;
@@ -120,6 +133,45 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
     await withErrorHandling(async () => {
       if (ctx.pathname === '/health' && ctx.method === 'GET') {
         sendJson(res, 200, { status: 'ok' });
+        return;
+      }
+
+      if (ctx.pathname === '/plans' && ctx.method === 'GET') {
+        sendJson(res, 200, PLAN_DEFINITIONS);
+        return;
+      }
+
+      if (ctx.pathname === '/clients' && ctx.method === 'POST') {
+        const body = ctx.body ?? {};
+        const plan = body.plan ?? 'starter';
+        const planDef = getPlanById(plan);
+        if (!planDef) {
+          throw new Error(`Unknown plan: ${plan}`);
+        }
+        const record = await upsertClientRecord(clientsRepo, {
+          id: body.id,
+          name: body.name ?? body.id,
+          owner: body.owner ?? body.id ?? 'unknown-owner',
+          plan,
+          status: body.status ?? 'active',
+          contactInfo: body.contact ?? null,
+          limits: body.limits ?? {
+            guard: planDef.limits.guard,
+            risk: {
+              maxPerTradeUsd: planDef.limits.maxPerTradeUsd,
+            },
+          },
+        });
+        await auditRepo.addEntry({
+          clientId: record.id,
+          actor: resolveActor(ctx.req),
+          action: 'client_upsert',
+          metadata: {
+            plan,
+            status: record.status,
+          },
+        });
+        sendJson(res, 200, record);
         return;
       }
 
@@ -139,14 +191,33 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
         }
         if (ctx.method === 'PUT') {
           const body = ctx.body ?? {};
+          const planDef = body.plan ? getPlanById(body.plan) : null;
           const record = await upsertClientRecord(clientsRepo, {
             id: clientId,
-            name: body.name,
-            owner: body.owner,
+            name: body.name ?? clientId,
+            owner: body.owner ?? clientId,
             plan: body.plan,
             status: body.status,
             contactInfo: body.contact ?? null,
-            limits: body.limits ?? null,
+            limits:
+              body.limits ??
+              (planDef
+                ? {
+                    guard: planDef.limits.guard,
+                    risk: {
+                      maxPerTradeUsd: planDef.limits.maxPerTradeUsd,
+                    },
+                  }
+                : null),
+          });
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'client_update',
+            metadata: {
+              plan: body.plan,
+              status: body.status,
+            },
           });
           sendJson(res, 200, record);
           return;
@@ -173,6 +244,15 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
             apiSecret: body.apiSecret,
             passphrase: body.passphrase ?? null,
           });
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'credentials_rotated',
+            metadata: {
+              exchange: stored.exchangeName,
+              hasPassphrase: stored.hasPassphrase,
+            },
+          });
           sendJson(res, 201, stored);
           return;
         }
@@ -186,7 +266,75 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
         const exchangeName = decodeURIComponent(credsDeleteMatch[2]);
         if (ctx.method === 'DELETE') {
           await deleteClientCredentials(credsRepo, clientId, exchangeName);
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'credentials_deleted',
+            metadata: {
+              exchange: exchangeName,
+            },
+          });
           sendJson(res, 204, {});
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const auditMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/audit$/);
+      if (auditMatch) {
+        const clientId = decodeURIComponent(auditMatch[1]);
+        if (ctx.method === 'GET') {
+          const entries = await auditRepo.getRecent(clientId, Number(ctx.query.get('limit') ?? '20'));
+          sendJson(res, 200, entries);
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const paperRunMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/paper-run$/);
+      if (paperRunMatch) {
+        const clientId = decodeURIComponent(paperRunMatch[1]);
+        if (ctx.method === 'POST') {
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'paper_run_requested',
+            metadata: ctx.body ?? null,
+          });
+          sendJson(res, 202, { status: 'queued' });
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const metricsMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/metrics$/);
+      if (metricsMatch) {
+        const clientId = decodeURIComponent(metricsMatch[1]);
+        if (ctx.method === 'GET') {
+          const guardRes = await pool.query(
+            'SELECT global_pnl, run_pnl, inventory_base, inventory_cost, last_ticker_ts FROM bot_guard_state WHERE client_id = $1',
+            [clientId]
+          );
+          if (!guardRes.rows.length) {
+            sendJson(res, 404, { error: 'client_metrics_not_found' });
+            return;
+          }
+          const row = guardRes.rows[0];
+          sendJson(res, 200, {
+            clientId,
+            pnl: {
+              global: Number(row.global_pnl || 0),
+              run: Number(row.run_pnl || 0),
+            },
+            inventory: {
+              base: Number(row.inventory_base || 0),
+              cost: Number(row.inventory_cost || 0),
+            },
+            lastTickerTs: row.last_ticker_ts ? Number(row.last_ticker_ts) : null,
+          });
           return;
         }
         methodNotAllowed(res);

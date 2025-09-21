@@ -1,0 +1,38 @@
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../lib/authOptions';
+import { listCredentials, storeCredentials } from '../../../lib/adminClient';
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await getServerSession(req, res, authOptions);
+  if (!session?.user?.id) {
+    res.status(401).json({ error: 'unauthorized' });
+    return;
+  }
+  const clientId = session.user.id;
+  if (req.method === 'GET') {
+    try {
+      const creds = await listCredentials(clientId);
+      res.status(200).json(creds);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'list_failed' });
+    }
+    return;
+  }
+  if (req.method === 'POST') {
+    try {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      const stored = await storeCredentials(clientId, session.user.email ?? clientId, {
+        exchangeName: body.exchangeName,
+        apiKey: body.apiKey,
+        apiSecret: body.apiSecret,
+        passphrase: body.passphrase ?? null,
+      });
+      res.status(201).json(stored);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'store_failed' });
+    }
+    return;
+  }
+  res.status(405).json({ error: 'method_not_allowed' });
+}

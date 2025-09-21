@@ -169,6 +169,29 @@ curl -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" \
 
 > Tip: front the admin service with your API gateway / identity provider (e.g. Auth0, Cloudflare Access) to enforce SSO + audit logging before exposing it to operations teammates.
 
+### Client portal (Milestone 2 groundwork)
+
+- The Next.js portal lives in `apps/portal`. It uses NextAuth + Auth0 (bring your own Auth0 tenant) and talks to the admin API.
+- Configure the following environment variables (add them to `.env` or `.env.local` in the portal workspace):
+  - `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`
+  - `NEXTAUTH_SECRET` (generate via `openssl rand -base64 32`)
+  - `NEXTAUTH_URL` / `PORTAL_BASE_URL` (e.g. `http://localhost:3000`)
+  - `ADMIN_API_URL` (e.g. `http://localhost:9300`)
+- Development commands:
+  ```bash
+  npm run portal:dev      # starts Next.js on port 3000 by default
+  npm run portal:build
+  npm run portal:start
+  ```
+- The landing page provides Auth0 sign-in and routes authenticated users to `/app`, where plan selection, API key workflows, and metric dashboards will be layered in the next steps.
+
+#### Supplying exchange API keys (customer-facing)
+
+- Generate trade-only keys inside your exchange (no withdrawal, IP lock if available).
+- Paste the key/secret into the encrypted form inside the portal. Secrets never touch the browser’s local storage and are encrypted server-side with the tenant master key defined by `CLIENT_MASTER_KEY`.
+- Rotate keys from the same UI. Each rotation appears in the audit trail (`Action = credentials_rotated`) so operators can verify who changed what.
+- After storing keys, trigger a paper run from the dashboard to validate connectivity before requesting live access.
+
 ---
 
 ## Live Verification Checklist
