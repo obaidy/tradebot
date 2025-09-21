@@ -755,11 +755,33 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
             return;
           }
           const row = guardRes.rows[0];
+          const runRows = await pool.query(
+            `SELECT params_json
+             FROM bot_runs
+             WHERE client_id = $1
+             ORDER BY started_at DESC
+             LIMIT 40`,
+            [clientId]
+          );
+          const pnlHistory = runRows.rows
+            .map((runRow) => {
+              const params = (runRow.params_json ?? {}) as Record<string, any>;
+              const summary = params.summary ?? params.plan?.summary ?? params.metadata?.summary ?? null;
+              const candidate =
+                summary?.estNetProfit ??
+                summary?.raw?.estNetProfit ??
+                params.summary?.raw?.estNetProfit ??
+                params?.metrics?.estNetProfit ??
+                null;
+              return candidate !== null && candidate !== undefined ? Number(candidate) : null;
+            })
+            .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
           sendJson(res, 200, {
             clientId,
             pnl: {
               global: Number(row.global_pnl || 0),
               run: Number(row.run_pnl || 0),
+              history: pnlHistory,
             },
             inventory: {
               base: Number(row.inventory_base || 0),
@@ -794,11 +816,33 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
               return;
             }
             const row = guardRes.rows[0];
+            const runRows = await pool.query(
+              `SELECT params_json
+               FROM bot_runs
+               WHERE client_id = $1
+               ORDER BY started_at DESC
+               LIMIT 40`,
+              [clientId]
+            );
+            const pnlHistory = runRows.rows
+              .map((runRow) => {
+                const params = (runRow.params_json ?? {}) as Record<string, any>;
+                const summary = params.summary ?? params.plan?.summary ?? params.metadata?.summary ?? null;
+                const candidate =
+                  summary?.estNetProfit ??
+                  summary?.raw?.estNetProfit ??
+                  params.summary?.raw?.estNetProfit ??
+                  params?.metrics?.estNetProfit ??
+                  null;
+                return candidate !== null && candidate !== undefined ? Number(candidate) : null;
+              })
+              .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
             const payload = {
               clientId,
               pnl: {
                 global: Number(row.global_pnl || 0),
                 run: Number(row.run_pnl || 0),
+                history: pnlHistory,
               },
               inventory: {
                 base: Number(row.inventory_base || 0),

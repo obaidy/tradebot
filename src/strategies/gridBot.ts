@@ -1227,6 +1227,11 @@ export async function runGridOnce(
   const pool = getPool();
   await runMigrations(pool);
   const clientId = options.clientId ?? CONFIG.RUN.CLIENT_ID;
+  const adminOverrideIds = (process.env.ADMIN_LIVE_OVERRIDE_IDS || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const bypassPlanRestrictions = adminOverrideIds.includes(clientId);
   const clientConfigService = new ClientConfigService(pool, {
     allowedClientId: clientId,
     defaultExchange: CONFIG.DEFAULT_EXCHANGE,
@@ -1238,35 +1243,44 @@ export async function runGridOnce(
     options.runMode ?? (summaryOnly ? 'summary' : CONFIG.PAPER_MODE ? 'paper' : 'live');
   circuitBreaker.configureForClient(clientProfile.guard, clientId);
   const operations = clientProfile.operations;
-  if (runMode === 'live' && operations.paperOnly) {
-    logger.warn('live_blocked_paper_plan', {
-      event: 'live_blocked_paper_plan',
-      clientId,
-      pair,
-    });
-    throw new Error(`Client ${clientId} is limited to paper trading by plan`);
-  }
-  if (runMode === 'live' && operations.allowLiveTrading === false) {
-    logger.warn('live_blocked_plan_limit', {
-      event: 'live_blocked_plan_limit',
-      clientId,
-      pair,
-    });
-    throw new Error(`Live trading is disabled for client ${clientId}`);
-  }
-  if (operations.allowedExchanges && operations.allowedExchanges.length > 0) {
-    if (!operations.allowedExchanges.includes(clientProfile.exchangeId)) {
-      logger.warn('exchange_not_permitted', {
-        event: 'exchange_not_permitted',
+  if (!bypassPlanRestrictions) {
+    if (runMode === 'live' && operations.paperOnly) {
+      logger.warn('live_blocked_paper_plan', {
+        event: 'live_blocked_paper_plan',
         clientId,
-        exchangeId: clientProfile.exchangeId,
-        allowedExchanges: operations.allowedExchanges,
+        pair,
       });
-      throw new Error(`Exchange ${clientProfile.exchangeId} is not permitted for client ${clientId}`);
+      throw new Error(`Client ${clientId} is limited to paper trading by plan`);
     }
-  }
-  if (operations.allowedSymbols && !operations.allowedSymbols.includes(pair)) {
-    throw new Error(`Pair ${pair} is not permitted for client ${clientId}`);
+    if (runMode === 'live' && operations.allowLiveTrading === false) {
+      logger.warn('live_blocked_plan_limit', {
+        event: 'live_blocked_plan_limit',
+        clientId,
+        pair,
+      });
+      throw new Error(`Live trading is disabled for client ${clientId}`);
+    }
+    if (operations.allowedExchanges && operations.allowedExchanges.length > 0) {
+      if (!operations.allowedExchanges.includes(clientProfile.exchangeId)) {
+        logger.warn('exchange_not_permitted', {
+          event: 'exchange_not_permitted',
+          clientId,
+          exchangeId: clientProfile.exchangeId,
+          allowedExchanges: operations.allowedExchanges,
+        });
+        throw new Error(`Exchange ${clientProfile.exchangeId} is not permitted for client ${clientId}`);
+      }
+    }
+    if (operations.allowedSymbols && !operations.allowedSymbols.includes(pair)) {
+      throw new Error(`Pair ${pair} is not permitted for client ${clientId}`);
+    }
+  } else {
+    logger.debug('admin_plan_override', {
+      event: 'admin_plan_override',
+      clientId,
+      pair,
+      runMode,
+    });
   }
   let effectiveApiKey = apiKey;
   let effectiveApiSecret = apiSecret;
