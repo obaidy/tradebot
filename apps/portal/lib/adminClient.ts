@@ -105,3 +105,82 @@ export async function triggerPaperRun(clientId: string, actor: string) {
 export async function fetchMetrics(clientId: string) {
   return adminRequest(`/clients/${clientId}/metrics`);
 }
+
+export async function fetchWorkers(clientId: string) {
+  return adminRequest(`/clients/${clientId}/workers`);
+}
+
+export async function pauseClient(clientId: string, actor: string) {
+  return adminRequest(`/clients/${clientId}/pause`, {
+    method: 'POST',
+    actor,
+  });
+}
+
+export async function resumeClient(clientId: string, actor: string) {
+  return adminRequest(`/clients/${clientId}/resume`, {
+    method: 'POST',
+    actor,
+  });
+}
+
+export async function killClient(clientId: string, actor: string) {
+  return adminRequest(`/clients/${clientId}/kill`, {
+    method: 'POST',
+    actor,
+  });
+}
+
+export async function createBillingSessionForClient(payload: {
+  clientId: string;
+  planId: string;
+  actor: string;
+  successUrl: string;
+  cancelUrl: string;
+  trialDays?: number;
+}) {
+  return adminRequest('/billing/session', {
+    method: 'POST',
+    body: JSON.stringify({
+      clientId: payload.clientId,
+      planId: payload.planId,
+      successUrl: payload.successUrl,
+      cancelUrl: payload.cancelUrl,
+      trialDays: payload.trialDays,
+    }),
+    actor: payload.actor,
+  });
+}
+
+export async function listBillingStatus() {
+  return adminRequest('/billing/status');
+}
+
+export async function fetchAdminSummary() {
+  return adminRequest('/metrics/summary');
+}
+
+export async function fetchClientHistory(clientId: string) {
+  return adminRequest(`/clients/${clientId}/history`);
+}
+
+export async function fetchClientAgreements(clientId: string) {
+  return adminRequest(`/clients/${clientId}/agreements`);
+}
+
+export async function acceptClientAgreements(
+  clientId: string,
+  actor: string,
+  documents: Array<{ documentType: string; version: string }>,
+  ipAddress?: string
+) {
+  return adminRequest(`/clients/${clientId}/agreements`, {
+    method: 'POST',
+    body: JSON.stringify({ documents, ipAddress }),
+    actor,
+  });
+}
+
+export async function fetchLegalDocument(slug: string) {
+  return adminRequest(`/legal/${slug}`);
+}

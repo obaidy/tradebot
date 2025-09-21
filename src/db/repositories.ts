@@ -113,6 +113,46 @@ export class RunsRepository {
     );
     return res.rows;
   }
+
+  async getActiveRunMetadata(): Promise<
+    Array<{ runId: string; pair: string | null; plannedExposureUsd: number }>
+  > {
+    const res = await this.pool.query(
+      `SELECT run_id, params_json, market_snapshot
+       FROM bot_runs
+       WHERE status = 'running' AND client_id = $1`,
+      [this.clientId]
+    );
+    return res.rows.map((row) => {
+      const params = (row.params_json ?? {}) as Record<string, any>;
+      const snapshot = (row.market_snapshot ?? {}) as Record<string, any>;
+      const pair =
+        (typeof params.pair === 'string' && params.pair) ||
+        (typeof params.symbol === 'string' && params.symbol) ||
+        (typeof snapshot.pair === 'string' && snapshot.pair) ||
+        null;
+      const plannedExposureUsdRaw = (params as any).plannedExposureUsd;
+      const plannedExposureUsd = Number(plannedExposureUsdRaw ?? 0);
+      return {
+        runId: row.run_id as string,
+        pair,
+        plannedExposureUsd: Number.isFinite(plannedExposureUsd) ? plannedExposureUsd : 0,
+      };
+    });
+  }
+
+  async getPlannedExposureSince(since: Date) {
+    const res = await this.pool.query(
+      `SELECT COALESCE(SUM((params_json->>'plannedExposureUsd')::numeric), 0) AS exposure
+       FROM bot_runs
+       WHERE client_id = $1
+         AND started_at >= $2
+         AND COALESCE(params_json->>'runMode', '') <> 'summary'`,
+      [this.clientId, since.toISOString()]
+    );
+    const value = Number(res.rows[0]?.exposure ?? 0);
+    return Number.isFinite(value) ? value : 0;
+  }
 }
 
 export class OrdersRepository {

@@ -46,6 +46,24 @@ export const inventoryGauge = new Gauge({
   labelNames: ['client_id', 'asset'] as const,
 });
 
+export const clientQueueDepthGauge = new Gauge({
+  name: 'client_queue_depth',
+  help: 'Queued tasks per client (BullMQ waiting + delayed count)',
+  labelNames: ['client_id'] as const,
+});
+
+export const clientWorkerStatusGauge = new Gauge({
+  name: 'client_worker_status',
+  help: 'Worker status per client (1=running,0=paused,-1=error,0.5=starting,-0.5=stopped)',
+  labelNames: ['client_id', 'worker_id'] as const,
+});
+
+export const clientWorkerFailureCounter = new Counter({
+  name: 'client_worker_failures_total',
+  help: 'Total job failures per client worker',
+  labelNames: ['client_id', 'worker_id'] as const,
+});
+
 export function startMetricsServer(port = Number(process.env.METRICS_PORT || 9100)) {
   if (metricsRegistered.started) return;
   metricsRegistered.started = true;
@@ -78,4 +96,7 @@ export function resetMetrics() {
   apiErrorCounter.reset();
   pnlGauge.reset();
   inventoryGauge.reset();
+  clientQueueDepthGauge.reset();
+  clientWorkerStatusGauge.reset();
+  clientWorkerFailureCounter.reset();
 }

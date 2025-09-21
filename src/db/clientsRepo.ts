@@ -18,6 +18,13 @@ export interface ClientRow {
   status: string;
   contactInfo: Record<string, unknown> | null;
   limits: Record<string, unknown> | null;
+  isPaused: boolean;
+  killRequested: boolean;
+  billingStatus: string;
+  trialEndsAt: Date | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  billingAutoPaused: boolean;
   createdAt: Date;
 }
 
@@ -29,6 +36,11 @@ export interface ClientUpsertInput {
   status?: string;
   contactInfo?: Record<string, unknown> | null;
   limits?: Record<string, unknown> | null;
+  billingStatus?: string;
+  trialEndsAt?: Date | null;
+  stripeCustomerId?: string | null;
+  stripeSubscriptionId?: string | null;
+  billingAutoPaused?: boolean;
 }
 
 export class ClientsRepository {
@@ -39,44 +51,41 @@ export class ClientsRepository {
     if (!res.rows.length) {
       return null;
     }
-    const row = res.rows[0];
-    return {
-      id: row.id,
-      name: row.name,
-      owner: row.owner,
-      plan: row.plan,
-      status: row.status,
-      contactInfo: parseJsonValue(row.contact_info),
-      limits: parseJsonValue(row.limits_json),
-      createdAt: row.created_at,
-    };
+    return this.mapRow(res.rows[0]);
   }
 
   async listAll(): Promise<ClientRow[]> {
     const res = await this.pool.query('SELECT * FROM clients ORDER BY created_at DESC');
-    return res.rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      owner: row.owner,
-      plan: row.plan,
-      status: row.status,
-      contactInfo: parseJsonValue(row.contact_info),
-      limits: parseJsonValue(row.limits_json),
-      createdAt: row.created_at,
-    }));
+    return res.rows.map((row) => this.mapRow(row));
   }
 
   async upsert(input: ClientUpsertInput): Promise<ClientRow> {
     const res = await this.pool.query(
-      `INSERT INTO clients (id, name, owner, plan, status, contact_info, limits_json)
-       VALUES ($1,$2,$3,COALESCE($4,'starter'),COALESCE($5,'active'),$6,$7)
+      `INSERT INTO clients (id, name, owner, plan, status, contact_info, limits_json, billing_status, trial_ends_at, stripe_customer_id, stripe_subscription_id, billing_auto_paused)
+       VALUES (
+         $1,$2,$3,
+         COALESCE($4,'starter'),
+         COALESCE($5,'active'),
+         $6,
+         $7,
+         COALESCE($8,'trialing'),
+         $9,
+         $10,
+         $11,
+         COALESCE($12,false)
+       )
        ON CONFLICT (id) DO UPDATE
        SET name = EXCLUDED.name,
            owner = EXCLUDED.owner,
            plan = EXCLUDED.plan,
            status = EXCLUDED.status,
            contact_info = EXCLUDED.contact_info,
-           limits_json = EXCLUDED.limits_json
+           limits_json = EXCLUDED.limits_json,
+           billing_status = COALESCE($8, clients.billing_status),
+           trial_ends_at = COALESCE($9, clients.trial_ends_at),
+           stripe_customer_id = COALESCE($10, clients.stripe_customer_id),
+           stripe_subscription_id = COALESCE($11, clients.stripe_subscription_id),
+           billing_auto_paused = COALESCE($12, clients.billing_auto_paused)
        RETURNING *`,
       [
         input.id,
@@ -86,17 +95,112 @@ export class ClientsRepository {
         input.status ?? 'active',
         input.contactInfo ?? null,
         input.limits ?? null,
+        input.billingStatus ?? null,
+        input.trialEndsAt ?? null,
+        input.stripeCustomerId ?? null,
+        input.stripeSubscriptionId ?? null,
+        input.billingAutoPaused ?? null,
       ]
     );
+    return this.mapRow(res.rows[0]);
+  }
+
+  async setPauseState(clientId: string, isPaused: boolean) {
+    const res = await this.pool.query(
+      `UPDATE clients SET is_paused = $2 WHERE id = $1 RETURNING *`,
+      [clientId, isPaused]
+    );
+    return res.rows[0] ? this.mapRow(res.rows[0]) : null;
+  }
+
+  async setBillingPause(
+    clientId: string,
+    update: { autoPaused: boolean; isPaused?: boolean }
+  ) {
+    const res = await this.pool.query(
+      `UPDATE clients
+       SET billing_auto_paused = $2,
+           is_paused = COALESCE($3, is_paused)
+       WHERE id = $1
+       RETURNING *`,
+      [clientId, update.autoPaused, update.isPaused ?? null]
+    );
+    return res.rows[0] ? this.mapRow(res.rows[0]) : null;
+  }
+
+  async setKillRequest(clientId: string, kill: boolean) {
+    const res = await this.pool.query(
+      `UPDATE clients SET kill_requested = $2 WHERE id = $1 RETURNING *`,
+      [clientId, kill]
+    );
+    return res.rows[0] ? this.mapRow(res.rows[0]) : null;
+  }
+
+  async updateBilling(
+    clientId: string,
+    update: {
+      planId?: string;
+      billingStatus?: string | null;
+      trialEndsAt?: Date | null;
+      stripeCustomerId?: string | null;
+      stripeSubscriptionId?: string | null;
+      billingAutoPaused?: boolean;
+    }
+  ): Promise<ClientRow | null> {
+    const shouldUpdatePlan = update.planId !== undefined;
+    const shouldUpdateBilling = update.billingStatus !== undefined;
+    const shouldUpdateTrial = update.trialEndsAt !== undefined;
+    const shouldUpdateCustomer = update.stripeCustomerId !== undefined;
+    const shouldUpdateSubscription = update.stripeSubscriptionId !== undefined;
+    const shouldUpdateAutoPause = update.billingAutoPaused !== undefined;
+
+    const res = await this.pool.query(
+      `UPDATE clients
+       SET
+         plan = CASE WHEN $3 THEN COALESCE($2, plan) ELSE plan END,
+          billing_status = CASE WHEN $5 THEN COALESCE($4, billing_status) ELSE billing_status END,
+          trial_ends_at = CASE WHEN $7 THEN $6 ELSE trial_ends_at END,
+          stripe_customer_id = CASE WHEN $9 THEN $8 ELSE stripe_customer_id END,
+         stripe_subscription_id = CASE WHEN $11 THEN $10 ELSE stripe_subscription_id END,
+         billing_auto_paused = CASE WHEN $13 THEN COALESCE($12, billing_auto_paused) ELSE billing_auto_paused END
+       WHERE id = $1
+       RETURNING *`,
+      [
+        clientId,
+        update.planId ?? null,
+        shouldUpdatePlan,
+        update.billingStatus ?? null,
+        shouldUpdateBilling,
+        update.trialEndsAt ?? null,
+        shouldUpdateTrial,
+        update.stripeCustomerId ?? null,
+        shouldUpdateCustomer,
+        update.stripeSubscriptionId ?? null,
+        shouldUpdateSubscription,
+        update.billingAutoPaused ?? null,
+        shouldUpdateAutoPause,
+      ]
+    );
+    return res.rows[0] ? this.mapRow(res.rows[0]) : null;
+  }
+
+  private mapRow(row: any): ClientRow {
     return {
-      id: res.rows[0].id,
-      name: res.rows[0].name,
-      owner: res.rows[0].owner,
-      plan: res.rows[0].plan,
-      status: res.rows[0].status,
-      contactInfo: parseJsonValue(res.rows[0].contact_info),
-      limits: parseJsonValue(res.rows[0].limits_json),
-      createdAt: res.rows[0].created_at,
+      id: row.id,
+      name: row.name,
+      owner: row.owner,
+      plan: row.plan,
+      status: row.status,
+      contactInfo: parseJsonValue(row.contact_info),
+      limits: parseJsonValue(row.limits_json),
+      isPaused: Boolean(row.is_paused),
+      killRequested: Boolean(row.kill_requested),
+      billingStatus: row.billing_status ?? 'trialing',
+      trialEndsAt: row.trial_ends_at ? new Date(row.trial_ends_at) : null,
+      stripeCustomerId: row.stripe_customer_id ?? null,
+      stripeSubscriptionId: row.stripe_subscription_id ?? null,
+      billingAutoPaused: Boolean(row.billing_auto_paused),
+      createdAt: row.created_at,
     };
   }
 }

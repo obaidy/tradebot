@@ -3,18 +3,11 @@ import {
   ClientApiCredentialsRepository,
   ClientRow,
   ClientApiCredentialRow,
+  ClientUpsertInput,
 } from '../db/clientsRepo';
 import { ClientConfigService } from '../services/clientConfig';
 
-export interface UpsertClientInput {
-  id: string;
-  name: string;
-  owner: string;
-  plan?: string;
-  status?: string;
-  contactInfo?: Record<string, unknown> | null;
-  limits?: Record<string, unknown> | null;
-}
+export type UpsertClientInput = ClientUpsertInput;
 
 export interface StoredCredentialSummary {
   clientId: string;
@@ -94,4 +87,3 @@ export async function deleteClientCredentials(
 ) {
   await credsRepo.delete(clientId, exchangeName);
 }
-

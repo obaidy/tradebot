@@ -184,6 +184,9 @@ curl -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" \
   npm run portal:start
   ```
 - The landing page provides Auth0 sign-in and routes authenticated users to `/app`, where plan selection, API key workflows, and metric dashboards will be layered in the next steps.
+- Billing: the dashboard now displays your plan status, three-day trial countdown, and an "Upgrade" / "Manage billing" CTA. Configure `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and price IDs (`STRIPE_STARTER_PRICE_ID`, `STRIPE_PRO_PRICE_ID`) to enable live checkout flows.
+- Operators can visit `/admin` (same portal) to view billing status, worker health, and aggregated P&L per client. The page leverages the new `/billing/status` and `/metrics/summary` endpoints exposed by the admin API.
+- Customers are required to acknowledge the latest Terms, Privacy Policy, and Risk Disclosure in-app (overlays pull markdown from `/legal/*` and post acceptances to `/clients/:id/agreements`). Acceptances are logged with IP + timestamp for audit.
 
 #### Paper-run queue & worker
 
@@ -193,6 +196,11 @@ curl -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" \
   npm run paper:worker
   ```
 - When a user requests a paper run, the admin API enqueues a job. The worker executes `runGridOnce` for that client, logging `paper_run_started`, `paper_run_completed`, or `paper_run_failed` entries in `client_audit_log`.
+- For live execution, run a dedicated **client runner** per tenant:
+  ```bash
+  CLIENT_ID=my-client npm run client:worker
+  ```
+  Each runner watches a client-specific BullMQ queue (`client:my-client:tasks`) and respects pause/kill flags from the portal.
 
 #### Supplying exchange API keys (customer-facing)
 
@@ -210,6 +218,57 @@ curl -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" \
 4. **Traffic flow**: Portal → NextAuth (Auth0) → Admin API (bearer token) → Postgres/Redis → Worker.
 5. Update DNS/SSL accordingly and rotate `ADMIN_API_TOKEN`/`CLIENT_MASTER_KEY` via your secrets manager.
 
+### Client execution workers
+
+- The admin API exposes controls:
+  - `POST /clients/:id/run` — enqueue a grid run job (`npm run client:worker` consumes it).
+  - `POST /clients/:id/pause` / `resume` — toggle `clients.is_paused` and queue pause/resume signals.
+  - `POST /clients/:id/kill` — set `kill_requested`, enqueue a shutdown signal, and surface in the portal.
+  - `GET /clients/:id/workers` — view registered worker processes + heartbeats.
+  - `GET /billing/status` — list all clients with billing status, trial end times, and auto-pause flags for external dashboards.
+- Portal dashboard now shows runner status, pause/resume/kill buttons, and audit logging for every control action.
+- For process managers:
+  - **PM2**: see `infra/pm2/client-runner.config.js` (set `CLIENT_ID`, secrets, etc.).
+  - **Kubernetes**: use `infra/k8s/client-runner.yaml` to template a Deployment per client (`client_id` labels).
+- Example commands:
+  ```bash
+  # queue a grid run for a client from the admin API (requires ADMIN_API_TOKEN header)
+  curl -X POST \
+    -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"pair":"BTC/USDT","runMode":"paper"}' \
+    http://localhost:9300/clients/my-client/run
+
+  # pause/resume directly
+  curl -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" http://localhost:9300/clients/my-client/pause
+  curl -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" http://localhost:9300/clients/my-client/resume
+  ```
+- Query `/metrics/summary` for a JSON snapshot of per-client guard P&L, worker counts, and run counts. `/billing/status` exposes billing state (trial expiration, auto-pause flags) for ingestion into Grafana/Metabase.
+
+### Alerting
+
+- Telegram alerts are emitted whenever the guard trips or kill switch triggers (`TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID`).
+- Optional SendGrid/Twilio hooks can notify customers directly — set `SENDGRID_API_KEY` + `ALERT_EMAIL_FROM` and/or `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `ALERT_SMS_FROM`.
+- Store per-client contact details (`contact.email`, `contact.phone`, `contact.telegramChatId`) via the admin API so the dispatcher can route notifications to the right recipients.
+
+### Stripe checkout verification
+
+- Set the following environment variables (use Stripe test values in development): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_STARTER_PRICE_ID`, `STRIPE_PRO_PRICE_ID`.
+- Log in to Stripe CLI and forward webhooks to the admin API:
+  ```bash
+  stripe login
+  stripe listen --forward-to http://localhost:9300/billing/webhook
+  ```
+- Start the dev stack, then in another terminal create a checkout session through the portal or directly via:
+  ```bash
+  curl -X POST \
+    -H "Cookie: session=..." \
+    -H "Content-Type: application/json" \
+    http://localhost:3000/api/client/billing/session \
+    -d '{"planId":"starter"}'
+  ```
+- Complete the test checkout in the Stripe-hosted page, then use `stripe trigger checkout.session.completed` to replay events as needed. Confirm the webhook succeeds and `GET http://localhost:9300/billing/status` reflects the subscription state.
+
 ---
 
 ## Live Verification Checklist
@@ -225,19 +284,19 @@ Before enabling live trading on a new exchange account:
 
 ## Process Automation
 
-- `npm run walkforward` executes the staged backtest → walk-forward workflow described in `configs/walkforward.json`. Adjust the JSON to list successive regimes/windows you want to validate; each stage can override env vars (e.g., `GRID_STEPS`, `TP`).
-- `npm run deploy:paper` builds the project and launches `node dist/index.js` with `PAPER_MODE=true` for canary validation. Logs/metrics go to the same dashboard/Prometheus endpoints.
-- `npm run deploy:live` requires `PROMOTE_CONFIRM=I_ACKNOWLEDGE_RISK` and ensures `PAPER_MODE` is not true before launching live. This reuses the built artifact for reproducibility.
+- `npm run walkforward` now enumerates every JSON config under `configs/walkforward/` (or the legacy `configs/walkforward.json`) and writes per-strategy reports to `reports/releases/<id>/walkforward/`. Set `RELEASE_ID` to group the outputs for CI runs or local dry-runs.
+- `npm run deploy:paper` builds the project, runs the bot with `PAPER_MODE=true`, records the result at `reports/releases/<id>/paper-canary.json`, and respects `CANARY_TIMEOUT_MS` (default 10 minutes) to avoid hanging workflows.
+- `npm run deploy:live` refuses to run unless `PROMOTE_CONFIRM=I_ACKNOWLEDGE_RISK` and a successful paper canary report is present for the same `RELEASE_ID`. Results land in `reports/releases/<id>/live-deploy.json`.
 - Structured JSON logs can be ingested via `LOG_INGEST_WEBHOOK` (POST per log entry) for centralized pipelines.
 - Dashboard: visit `http://localhost:${DASHBOARD_PORT}` for an HTML snapshot of the latest run, open orders, guard state, and realized P&L (JSON available at `/api/status`).
 
 ### Release cadence (suggested)
 
-1. Run `npm run walkforward` for regression screening (commit artifacts/results as needed).
-2. Execute `npm run test` and `npm run build` (CI already enforces this on push/PR via `.github/workflows/ci.yml`).
-3. Launch `npm run deploy:paper`; monitor metrics/logs and the live verification checklist outputs.
-4. If the canary passes and stakeholders approve, promote with `npm run deploy:live` using a fresh terminal and explicit confirmation variable.
-5. Capture key telemetry snapshots (metrics scrape, dashboard `/api/status`) and record the run id in release notes.
+1. Follow the steps in `docs/release-runbook.md` — trigger the **Release Pipeline** workflow with a `release_tag` once the milestone board is green.
+2. Review uploaded walk-forward artefacts (`walkforward-<release>.zip`) and canary summaries from the workflow run.
+3. Approve the production environment gate when the paper canary has `status: "passed"` and stakeholders sign off.
+4. After the live job completes, update `docs/release-notes/<release_tag>.md` using the template and circulate to clients.
+5. Capture key telemetry snapshots (metrics scrape, dashboard `/api/status`) for historical comparison.
 
 ## Selling & GTM strategy (how to sell this bot as a product / membership)
 Below is a concise, ruthless go-to-market plan so you can turn this bot into recurring revenue.

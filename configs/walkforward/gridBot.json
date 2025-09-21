@@ -1,0 +1,33 @@
+{
+  "stages": [
+    {
+      "name": "Warmup",
+      "command": "npm run backtest",
+      "env": {
+        "SUMMARY_ONLY": "true",
+        "TP": "0.03",
+        "GRID_STEPS": "6"
+      }
+    },
+    {
+      "name": "WalkForward-Window1",
+      "command": "npm run backtest",
+      "env": {
+        "WF_START": "2024-01-01",
+        "WF_END": "2024-03-01",
+        "GRID_STEPS": "8",
+        "TP": "0.04"
+      }
+    },
+    {
+      "name": "WalkForward-Window2",
+      "command": "npm run backtest",
+      "env": {
+        "WF_START": "2024-03-01",
+        "WF_END": "2024-05-01",
+        "GRID_STEPS": "10",
+        "TP": "0.05"
+      }
+    }
+  ]
+}

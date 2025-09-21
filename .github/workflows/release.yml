@@ -1,0 +1,164 @@
+name: Release Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Version or tag to associate with this release'
+        required: false
+        default: ''
+      promote_live:
+        description: 'Promote to live after paper canary passes'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  lint-test-build:
+    name: Lint / Test / Build
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '20'
+      RELEASE_ID: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || github.sha }}
+      PG_URL: postgresql://postgres:postgres@localhost:5432/tradebot
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tradebot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint --if-present
+      - run: npm test
+      - run: npm run build
+
+  walkforward:
+    name: Walk-Forward Regression
+    runs-on: ubuntu-latest
+    needs: lint-test-build
+    env:
+      NODE_VERSION: '20'
+      RELEASE_ID: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run walkforward
+        env:
+          RELEASE_ID: ${{ env.RELEASE_ID }}
+      - name: Upload walk-forward reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: walkforward-${{ env.RELEASE_ID }}
+          path: reports/releases/${{ env.RELEASE_ID }}/walkforward
+          if-no-files-found: warn
+
+  paper-canary:
+    name: Paper Canary Deploy
+    runs-on: ubuntu-latest
+    needs: walkforward
+    env:
+      NODE_VERSION: '20'
+      RELEASE_ID: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || github.sha }}
+      PG_URL: postgresql://postgres:postgres@localhost:5432/tradebot
+      SUMMARY_ONLY: 'true'
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tradebot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run deploy:paper
+        env:
+          RELEASE_ID: ${{ env.RELEASE_ID }}
+          PG_URL: ${{ env.PG_URL }}
+          SUMMARY_ONLY: ${{ env.SUMMARY_ONLY }}
+      - name: Upload canary summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-${{ env.RELEASE_ID }}
+          path: reports/releases/${{ env.RELEASE_ID }}/paper-canary.json
+          if-no-files-found: warn
+
+  live-deploy:
+    name: Promote Live
+    runs-on: ubuntu-latest
+    needs: paper-canary
+    if: ${{ github.event.inputs.promote_live == 'true' }}
+    environment:
+      name: production
+    env:
+      NODE_VERSION: '20'
+      RELEASE_ID: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || github.sha }}
+      PG_URL: postgresql://postgres:postgres@localhost:5432/tradebot
+      PROMOTE_CONFIRM: I_ACKNOWLEDGE_RISK
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tradebot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run deploy:live
+        env:
+          RELEASE_ID: ${{ env.RELEASE_ID }}
+          PG_URL: ${{ env.PG_URL }}
+          PROMOTE_CONFIRM: ${{ env.PROMOTE_CONFIRM }}
+      - name: Upload live summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-${{ env.RELEASE_ID }}
+          path: reports/releases/${{ env.RELEASE_ID }}/live-deploy.json
+          if-no-files-found: warn

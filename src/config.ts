@@ -7,6 +7,11 @@ export const CONFIG = {
   PG_URL: process.env.PG_URL || 'postgresql://postgres:password@localhost:5432/tradebot',
   TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '',
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || '',
+  SENDGRID_API_KEY: process.env.SENDGRID_API_KEY || '',
+  ALERT_EMAIL_FROM: process.env.ALERT_EMAIL_FROM || '',
+  TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID || '',
+  TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN || '',
+  ALERT_SMS_FROM: process.env.ALERT_SMS_FROM || '',
   PAPER_MODE: process.env.PAPER_MODE === 'true',
   DEFAULT_EXCHANGE: process.env.DEFAULT_EXCHANGE || 'binance',
   RISK: {
@@ -17,5 +22,10 @@ export const CONFIG = {
   RUN: {
     OWNER: process.env.RUN_OWNER || 'local',
     CLIENT_ID: process.env.CLIENT_ID || 'default'
+  },
+  LEGAL: {
+    TOS_VERSION: process.env.TOS_VERSION || '2025-01-01',
+    PRIVACY_VERSION: process.env.PRIVACY_VERSION || '2025-01-01',
+    RISK_VERSION: process.env.RISK_VERSION || '2025-01-01'
   }
 };

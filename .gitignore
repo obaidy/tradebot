@@ -10,3 +10,4 @@ dist/
 .idea/
 npm-debug.log
 coverage/
+reports/releases/

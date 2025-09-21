@@ -67,6 +67,7 @@ describe('ClientConfigService', () => {
     expect(profile.exchangeId).toBe('binance');
     expect(profile.guard.maxGlobalDrawdownUsd).toBe(150);
     expect(profile.guard.maxApiErrorsPerMin).toBe(7);
+    expect(profile.operations.maxPerTradeUsd).toBe(25);
   });
 
   it('stores and retrieves encrypted credentials', async () => {
@@ -83,6 +84,7 @@ describe('ClientConfigService', () => {
     expect(config.exchange.apiSecret).toBe('api-secret-xyz');
     expect(config.exchange.passphrase).toBe('pass-phrase');
     expect(config.guard.maxRunLossUsd).toBe(60);
+    expect(config.operations.maxPerTradeUsd).toBe(25);
   });
 
   it('enforces client scoping', async () => {

@@ -70,6 +70,7 @@ export type GridPlan = {
     minNotional: number | null;
     regime?: any;
   };
+  plannedExposureUsd: number;
 };
 
 let csvHeaderEnsured = false;
@@ -272,8 +273,19 @@ type ExchangeExecution = {
 class RateLimiter {
   private queue: Promise<void> = Promise.resolve();
   private last = 0;
+  private intervalMs: number;
 
-  constructor(private readonly intervalMs: number) {}
+  constructor(intervalMs: number) {
+    this.intervalMs = intervalMs;
+  }
+
+  updateInterval(intervalMs: number) {
+    this.intervalMs = intervalMs;
+  }
+
+  getIntervalMs() {
+    return this.intervalMs;
+  }
 
   async wait() {
     const prev = this.queue;
@@ -317,6 +329,22 @@ const DEFAULT_REPLACE_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_REPLACE_SLIPPAGE_PCT = 0.003;
 const DEFAULT_REPLACE_MAX_RETRIES = 3;
 
+const clientLimiterRegistry = new Map<string, RateLimiter>();
+
+function getClientRateLimiter(clientId: string, intervalMs: number) {
+  const safeInterval = Math.max(0, intervalMs);
+  const existing = clientLimiterRegistry.get(clientId);
+  if (existing) {
+    if (safeInterval > existing.getIntervalMs()) {
+      existing.updateInterval(safeInterval);
+    }
+    return existing;
+  }
+  const limiter = new RateLimiter(safeInterval);
+  clientLimiterRegistry.set(clientId, limiter);
+  return limiter;
+}
+
 interface OrderExecutionState {
   totalFilled: number;
   tpPlaced: number;
@@ -355,7 +383,12 @@ export async function executeBuyLevels(context: OrderExecutionContext) {
   const replaceSlippagePct = Number(process.env.REPLACE_SLIPPAGE_PCT || DEFAULT_REPLACE_SLIPPAGE_PCT);
   const replaceMaxRetries = Number(process.env.REPLACE_MAX_RETRIES || DEFAULT_REPLACE_MAX_RETRIES);
 
-  context.limiter = context.limiter ?? new RateLimiter(Math.max(0, rateIntervalMs));
+  const limiterIntervalMs = Math.max(0, rateIntervalMs);
+  if (context.limiter) {
+    context.limiter.updateInterval(limiterIntervalMs);
+  } else {
+    context.limiter = getClientRateLimiter(context.clientId, limiterIntervalMs);
+  }
   context.metrics = context.metrics ?? {
     buyReplacements: 0,
     sellReplacements: 0,
@@ -1200,7 +1233,41 @@ export async function runGridOnce(
   });
   setLogContext({ clientId, actor: options.actor });
   const clientProfile = await clientConfigService.getClientProfile(clientId);
+  const summaryOnly = options.summaryOnly ?? (process.env.SUMMARY_ONLY || '').toLowerCase() === 'true';
+  const runMode: GridPlan['runMode'] =
+    options.runMode ?? (summaryOnly ? 'summary' : CONFIG.PAPER_MODE ? 'paper' : 'live');
   circuitBreaker.configureForClient(clientProfile.guard, clientId);
+  const operations = clientProfile.operations;
+  if (runMode === 'live' && operations.paperOnly) {
+    logger.warn('live_blocked_paper_plan', {
+      event: 'live_blocked_paper_plan',
+      clientId,
+      pair,
+    });
+    throw new Error(`Client ${clientId} is limited to paper trading by plan`);
+  }
+  if (runMode === 'live' && operations.allowLiveTrading === false) {
+    logger.warn('live_blocked_plan_limit', {
+      event: 'live_blocked_plan_limit',
+      clientId,
+      pair,
+    });
+    throw new Error(`Live trading is disabled for client ${clientId}`);
+  }
+  if (operations.allowedExchanges && operations.allowedExchanges.length > 0) {
+    if (!operations.allowedExchanges.includes(clientProfile.exchangeId)) {
+      logger.warn('exchange_not_permitted', {
+        event: 'exchange_not_permitted',
+        clientId,
+        exchangeId: clientProfile.exchangeId,
+        allowedExchanges: operations.allowedExchanges,
+      });
+      throw new Error(`Exchange ${clientProfile.exchangeId} is not permitted for client ${clientId}`);
+    }
+  }
+  if (operations.allowedSymbols && !operations.allowedSymbols.includes(pair)) {
+    throw new Error(`Pair ${pair} is not permitted for client ${clientId}`);
+  }
   let effectiveApiKey = apiKey;
   let effectiveApiSecret = apiSecret;
   let effectivePassphrase: string | null | undefined = undefined;
@@ -1235,9 +1302,6 @@ export async function runGridOnce(
     apiSecret: effectiveApiSecret,
     passphrase: effectivePassphrase,
   });
-  const summaryOnly = options.summaryOnly ?? (process.env.SUMMARY_ONLY || '').toLowerCase() === 'true';
-  const runMode: GridPlan['runMode'] =
-    options.runMode ?? (summaryOnly ? 'summary' : CONFIG.PAPER_MODE ? 'paper' : 'live');
   const timestampProvider = createTimestampProvider(runMode !== 'live');
 
   await circuitBreaker.initialize(guardRepo);
@@ -1267,6 +1331,16 @@ export async function runGridOnce(
       : perTradePctEnv !== undefined
       ? bankrollUsd * Number(perTradePctEnv)
       : bankrollUsd * defaultPerTradePct;
+
+  if (operations.maxPerTradeUsd && perTradeUsdOrig > operations.maxPerTradeUsd) {
+    logger.warn('per_trade_limited_by_plan', {
+      event: 'per_trade_limited_by_plan',
+      clientId,
+      workerLimit: operations.maxPerTradeUsd,
+      requested: perTradeUsdOrig,
+    });
+    perTradeUsdOrig = operations.maxPerTradeUsd;
+  }
 
   let adjustedGridSteps = baseGridSteps;
   let adjustedGridSizePct = baseGridSizePct;
@@ -1371,9 +1445,13 @@ export async function runGridOnce(
   });
   const buyLevelsWithCorrelation = buyLevels.map((lvl, idx) => ({
     ...lvl,
-    correlationId: `${runId}-lvl${String(idx + 1).padStart(2, '0')}`,
+    correlationId: lvl.correlationId || `${runId}-lvl${String(idx + 1).padStart(2, '0')}`,
   }));
   const generatedAt = timestampProvider();
+  const plannedExposureUsd = buyLevelsWithCorrelation.reduce(
+    (sum, lvl) => sum + (lvl.perTradeUsd ?? 0),
+    0
+  );
 
   const plan: GridPlan = {
     runId,
@@ -1395,13 +1473,94 @@ export async function runGridOnce(
       minNotional: minNotional ?? null,
       regime: regimeAnalysis,
     },
+    plannedExposureUsd,
   };
+
+  const activeRunMeta = await runsRepo.getActiveRunMetadata();
+  const activePairs = new Set(
+    activeRunMeta
+      .map((meta) => meta.pair)
+      .filter((meta): meta is string => Boolean(meta))
+  );
+  const pairAlreadyActive = activePairs.has(pair);
+
+  if (operations.maxSymbols && !pairAlreadyActive && activePairs.size >= operations.maxSymbols) {
+    logger.warn('max_symbols_limit_hit', {
+      event: 'max_symbols_limit_hit',
+      clientId,
+      limit: operations.maxSymbols,
+      activePairs: Array.from(activePairs),
+      requestedPair: pair,
+    });
+    throw new Error(`Max symbol limit (${operations.maxSymbols}) reached for client ${clientId}`);
+  }
+
+  const priorExposureUsd = activeRunMeta.reduce(
+    (sum, meta) => sum + (Number.isFinite(meta.plannedExposureUsd) ? meta.plannedExposureUsd : 0),
+    0
+  );
+  const projectedExposureUsd = priorExposureUsd + plannedExposureUsd;
+
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const dailyExposureUsd = await runsRepo.getPlannedExposureSince(oneDayAgo);
+  const projectedDailyExposureUsd = dailyExposureUsd + plannedExposureUsd;
+
+  if (
+    operations.maxExposureUsd !== undefined &&
+    operations.maxExposureUsd !== null &&
+    projectedExposureUsd > operations.maxExposureUsd
+  ) {
+    logger.warn('exposure_limit_hit', {
+      event: 'exposure_limit_hit',
+      clientId,
+      limit: operations.maxExposureUsd,
+      priorExposureUsd,
+      plannedExposureUsd,
+      projectedExposureUsd,
+    });
+    throw new Error(
+      `Planned exposure ${projectedExposureUsd.toFixed(2)} exceeds limit ${operations.maxExposureUsd} for client ${clientId}`
+    );
+  }
+
+  if (
+    operations.maxDailyVolumeUsd !== undefined &&
+    operations.maxDailyVolumeUsd !== null &&
+    projectedDailyExposureUsd > operations.maxDailyVolumeUsd
+  ) {
+    logger.warn('daily_volume_limit_hit', {
+      event: 'daily_volume_limit_hit',
+      clientId,
+      limit: operations.maxDailyVolumeUsd,
+      dailyExposureUsd,
+      plannedExposureUsd,
+      projectedDailyExposureUsd,
+    });
+    throw new Error(
+      `Daily planned volume ${projectedDailyExposureUsd.toFixed(2)} exceeds limit ${operations.maxDailyVolumeUsd} for client ${clientId}`
+    );
+  }
+
+  logger.info('operational_limits_ok', {
+    event: 'operational_limits_ok',
+    clientId,
+    pair,
+    priorExposureUsd,
+    plannedExposureUsd,
+    projectedExposureUsd,
+    dailyExposureUsd,
+    projectedDailyExposureUsd,
+    maxSymbols: operations.maxSymbols ?? null,
+    maxExposureUsd: operations.maxExposureUsd ?? null,
+    maxDailyVolumeUsd: operations.maxDailyVolumeUsd ?? null,
+  });
 
   await runsRepo.createRun({
     runId: plan.runId,
     owner: CONFIG.RUN.OWNER,
     exchange: (ex as any).id ?? CONFIG.DEFAULT_EXCHANGE,
     paramsJson: {
+      pair,
       gridSteps,
       gridSizePct,
       perTradeUsd,
@@ -1410,6 +1569,11 @@ export async function runGridOnce(
       summary,
       metadata: plan.metadata,
       regime: regimeAnalysis,
+      plannedExposureUsd,
+      limits: {
+        maxExposureUsd: operations.maxExposureUsd ?? null,
+        maxSymbols: operations.maxSymbols ?? null,
+      },
     },
     rateLimitMeta: captureRateLimitMeta(ex),
     marketSnapshot: captureMarketSnapshot(pair, ticker, marketMeta),
@@ -1431,9 +1595,20 @@ export async function runGridOnce(
       runId: plan.runId,
       baseAsset,
       quoteAsset,
+      exposureUsd: plannedExposureUsd,
       metadata: {
         event: 'run_start',
         mid,
+        plannedExposureUsd,
+        priorExposureUsd,
+        projectedExposureUsd,
+        dailyExposureUsd,
+        projectedDailyExposureUsd,
+        limits: {
+          maxExposureUsd: operations.maxExposureUsd ?? null,
+          maxSymbols: operations.maxSymbols ?? null,
+          maxDailyVolumeUsd: operations.maxDailyVolumeUsd ?? null,
+        },
       },
     });
   }
@@ -1448,6 +1623,7 @@ export async function runGridOnce(
     gridSizePct: plan.gridSizePct,
     perTradeUsd: plan.perTradeUsd,
     feePct: plan.feePct,
+    plannedExposureUsd: plan.plannedExposureUsd,
   });
   logger.info('market_metadata_resolved', {
     event: 'market_metadata',
@@ -1592,7 +1768,10 @@ export async function runGridOnce(
     await runsRepo.updateStatus({ runId: plan.runId, status: 'completed' });
     return plan;
   }
-  const sharedLimiter = new RateLimiter(Math.max(0, Number(process.env.ORDER_RATE_INTERVAL_MS || DEFAULT_ORDER_RATE_INTERVAL_MS)));
+  const sharedLimiter = getClientRateLimiter(
+    clientId,
+    Math.max(0, Number(process.env.ORDER_RATE_INTERVAL_MS || DEFAULT_ORDER_RATE_INTERVAL_MS))
+  );
   const executionContext: OrderExecutionContext = {
     clientId,
     exchange: ex as ExchangeExecution,

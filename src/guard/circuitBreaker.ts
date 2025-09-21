@@ -1,6 +1,7 @@
 import { killSwitch } from './killSwitch';
 import { apiErrorCounter, pnlGauge } from '../telemetry/metrics';
 import { GuardStateRepository, GuardState } from '../db/guardStateRepo';
+import { Notifier } from '../alerts/notifier';
 
 export interface CircuitConfig {
   maxGlobalDrawdownUsd: number;
@@ -81,11 +82,11 @@ export class CircuitBreaker {
     apiErrorCounter.labels(this.clientId ?? 'unknown', type).inc();
     this.persist().catch(() => {});
     if (this.state.apiErrorTimestamps.length >= this.activeConfig.maxApiErrorsPerMin) {
-      killSwitch
-        .activate(
-          `API error rate exceeded (${this.state.apiErrorTimestamps.length}/min, limit ${this.activeConfig.maxApiErrorsPerMin})`
-        )
-        .catch(() => {});
+      const message = `API error rate exceeded (${this.state.apiErrorTimestamps.length}/min, limit ${this.activeConfig.maxApiErrorsPerMin})`;
+      killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch(() => {});
+      if (this.clientId) {
+        Notifier.notifyClient({ clientId: this.clientId, message, subject: 'API Error Threshold' }).catch(() => {});
+      }
     }
   }
 
@@ -105,12 +106,18 @@ export class CircuitBreaker {
       this.state.inventoryCost -= avgCost * amount;
       pnlGauge.labels(this.clientId ?? 'unknown').set(this.state.globalPnl);
       if (this.state.globalPnl <= -this.activeConfig.maxGlobalDrawdownUsd) {
-        killSwitch
-          .activate(`Global drawdown exceeded ${this.activeConfig.maxGlobalDrawdownUsd}`)
-          .catch(() => {});
+        const message = `Global drawdown exceeded ${this.activeConfig.maxGlobalDrawdownUsd}`;
+        killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch(() => {});
+        if (this.clientId) {
+          Notifier.notifyClient({ clientId: this.clientId, message, subject: 'Global Drawdown Exceeded' }).catch(() => {});
+        }
       }
       if (this.state.runPnl <= -this.activeConfig.maxRunLossUsd) {
-        killSwitch.activate(`Run loss exceeded ${this.activeConfig.maxRunLossUsd}`).catch(() => {});
+        const message = `Run loss exceeded ${this.activeConfig.maxRunLossUsd}`;
+        killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch(() => {});
+        if (this.clientId) {
+          Notifier.notifyClient({ clientId: this.clientId, message, subject: 'Run Loss Threshold' }).catch(() => {});
+        }
       }
     }
     this.persist().catch(() => {});
@@ -120,7 +127,11 @@ export class CircuitBreaker {
     if (!this.initialized) return;
     const now = Date.now();
     if (now - this.state.lastTickerTs > this.activeConfig.staleTickerMs) {
-      killSwitch.activate('Market data stale').catch(() => {});
+      const message = 'Market data stale';
+      killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch(() => {});
+      if (this.clientId) {
+        Notifier.notifyClient({ clientId: this.clientId, message, subject: 'Market Data Stale' }).catch(() => {});
+      }
     }
   }
 

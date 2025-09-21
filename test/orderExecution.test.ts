@@ -133,6 +133,7 @@ describe('executeBuyLevels', () => {
           basePrecision: 4,
           minNotional: null,
         },
+        plannedExposureUsd: 1,
       } as any,
       takeProfitPct: 0.02,
       marketMeta: { stepSize: 0.0001, basePrecision: 4, minNotional: null },

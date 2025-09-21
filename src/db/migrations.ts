@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { PLAN_DEFINITIONS, buildPlanLimits } from '../config/plans';
 
 const MIGRATION_QUERIES: string[] = [
   `CREATE TABLE IF NOT EXISTS clients (
@@ -9,6 +10,13 @@ const MIGRATION_QUERIES: string[] = [
       status TEXT NOT NULL DEFAULT 'active',
       contact_info JSONB,
       limits_json JSONB,
+      is_paused BOOLEAN NOT NULL DEFAULT FALSE,
+      kill_requested BOOLEAN NOT NULL DEFAULT FALSE,
+      billing_status TEXT NOT NULL DEFAULT 'trialing',
+      trial_ends_at TIMESTAMPTZ,
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      billing_auto_paused BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
   `CREATE TABLE IF NOT EXISTS client_api_credentials (
@@ -94,6 +102,25 @@ const MIGRATION_QUERIES: string[] = [
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
   `CREATE INDEX IF NOT EXISTS idx_client_audit_client_created ON client_audit_log(client_id, created_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS client_workers (
+      worker_id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'starting',
+      last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_client_workers_client ON client_workers(client_id);`,
+  `CREATE TABLE IF NOT EXISTS client_terms_ack (
+      id SERIAL PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      document_type TEXT NOT NULL,
+      version TEXT NOT NULL,
+      accepted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ip_address TEXT
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_client_terms_ack_client_doc ON client_terms_ack(client_id, document_type);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uniq_client_terms_ack ON client_terms_ack(client_id, document_type, version);`,
   `CREATE INDEX IF NOT EXISTS idx_bot_orders_run_status ON bot_orders(run_id, status);`,
   `CREATE INDEX IF NOT EXISTS idx_bot_fills_run ON bot_fills(run_id);`
 ];
@@ -106,6 +133,13 @@ export async function runMigrations(pool: Pool) {
     await pool.query(query);
   }
   // evolve legacy schema: ensure columns exist with FK to clients
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS kill_requested BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'trialing'`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_auto_paused BOOLEAN NOT NULL DEFAULT FALSE`);
   await pool.query(`ALTER TABLE bot_runs ADD COLUMN IF NOT EXISTS client_id TEXT`);
   await pool.query(`ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS client_id TEXT`);
   await pool.query(`ALTER TABLE bot_fills ADD COLUMN IF NOT EXISTS client_id TEXT`);
@@ -186,32 +220,27 @@ export async function runMigrations(pool: Pool) {
       `ALTER TABLE bot_inventory_snapshots ADD CONSTRAINT fk_bot_inventory_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE`
     );
   }
-  const hasGuardPk = await pool.query(
-    `SELECT 1 FROM pg_constraint WHERE conname = 'bot_guard_state_pkey'`
-  );
-  if (hasGuardPk.rows.length === 0) {
-    await pool.query(`ALTER TABLE bot_guard_state ADD PRIMARY KEY (client_id)`);
-  }
-
-  const hasLegacyGuardFk = await pool.query(
-    `SELECT 1 FROM pg_constraint WHERE conname = 'bot_guard_state_client_id_fkey'`
-  );
-  if (hasLegacyGuardFk.rows.length) {
-    await pool.query(`ALTER TABLE bot_guard_state DROP CONSTRAINT bot_guard_state_client_id_fkey`);
-  }
-
   const hasGuardFk = await pool.query(
     `SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_guard_state_client'`
   );
   if (hasGuardFk.rows.length === 0) {
-    await pool.query(`
-      ALTER TABLE bot_guard_state
-      ADD CONSTRAINT fk_bot_guard_state_client
-      FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
-    `);
+    await pool.query(
+      `ALTER TABLE bot_guard_state ADD CONSTRAINT fk_bot_guard_state_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE`
+    );
   }
 
   await pool.query(`INSERT INTO bot_guard_state (client_id) VALUES ('default') ON CONFLICT (client_id) DO NOTHING`);
+
+  const starterPlan = PLAN_DEFINITIONS.find((plan) => plan.id === 'starter');
+  if (starterPlan) {
+    const starterLimits = buildPlanLimits(starterPlan);
+    await pool.query(
+      `UPDATE clients
+       SET limits_json = $1
+       WHERE id = 'default'`,
+      [starterLimits]
+    );
+  }
 
   ranPools.add(pool);
 }

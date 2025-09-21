@@ -1,5 +1,6 @@
 import http from 'http';
 import { Telegram } from '../alerts/telegram';
+import { Notifier } from '../alerts/notifier';
 
 class KillSwitch {
   private active = false;
@@ -13,18 +14,23 @@ class KillSwitch {
     return this.reason;
   }
 
-  async activate(reason: string) {
+  async activate(reason: string, options: { clientId?: string } = {}) {
     if (this.active) return;
     this.active = true;
     this.reason = reason;
-    await Telegram.sendMessage(`KILL SWITCH ACTIVATED: ${reason}`).catch(() => {});
+    const message = `KILL SWITCH ACTIVATED: ${reason}`;
+    await Notifier.notifyOps(message);
+    if (options.clientId) {
+      await Notifier.notifyClient({ clientId: options.clientId, message, subject: 'Kill Switch Activated' });
+    }
   }
 
   async reset(reason = 'manual reset') {
     if (!this.active) return;
     this.active = false;
     this.reason = null;
-    await Telegram.sendMessage(`Kill switch reset: ${reason}`).catch(() => {});
+    const message = `Kill switch reset: ${reason}`;
+    await Notifier.notifyOps(message);
   }
 }
 

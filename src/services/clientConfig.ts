@@ -37,6 +37,13 @@ export interface ClientLimits {
   };
   throttles?: Record<string, unknown>;
   guard?: Record<string, unknown>;
+  maxSymbols?: number;
+  allowLiveTrading?: boolean;
+  allowedSymbols?: string[];
+  maxExposureUsd?: number;
+  paperOnly?: boolean;
+  allowedExchanges?: string[];
+  maxDailyVolumeUsd?: number;
   [key: string]: unknown;
 }
 
@@ -52,6 +59,7 @@ export interface ClientConfig {
   };
   limits: ClientLimits;
   guard: GuardLimits;
+  operations: OperationalLimits;
 }
 
 export interface GuardLimits {
@@ -59,6 +67,17 @@ export interface GuardLimits {
   maxRunLossUsd?: number;
   maxApiErrorsPerMin?: number;
   staleTickerMs?: number;
+}
+
+export interface OperationalLimits {
+  maxSymbols?: number;
+  allowLiveTrading?: boolean;
+  maxPerTradeUsd?: number;
+  allowedSymbols?: string[] | null;
+  maxExposureUsd?: number;
+  paperOnly?: boolean;
+  allowedExchanges?: string[] | null;
+  maxDailyVolumeUsd?: number;
 }
 
 export interface ClientConfigServiceOptions {
@@ -125,6 +144,52 @@ function deriveGuardLimits(overrides: ClientLimits['guard']): GuardLimits {
   };
 }
 
+function deriveOperationalLimits(limits: ClientLimits, risk: RiskConfig): OperationalLimits {
+  const maxSymbols = typeof limits.maxSymbols === 'number'
+    ? limits.maxSymbols
+    : typeof limits.risk?.maxSymbols === 'number'
+    ? Number(limits.risk?.maxSymbols)
+    : undefined;
+  const allowLiveTrading = typeof limits.allowLiveTrading === 'boolean' ? limits.allowLiveTrading : undefined;
+  const maxPerTradeUsd = typeof (limits as any).maxPerTradeUsd === 'number'
+    ? Number((limits as any).maxPerTradeUsd)
+    : typeof (limits.risk as any)?.maxPerTradeUsd === 'number'
+    ? Number((limits.risk as any).maxPerTradeUsd)
+    : undefined;
+  const maxExposureUsd = typeof (limits as any).maxExposureUsd === 'number'
+    ? Number((limits as any).maxExposureUsd)
+    : typeof (limits.risk as any)?.maxExposureUsd === 'number'
+    ? Number((limits.risk as any).maxExposureUsd)
+    : undefined;
+  const paperOnly = typeof limits.paperOnly === 'boolean' ? limits.paperOnly : undefined;
+  const allowedSymbols = Array.isArray(limits.allowedSymbols)
+    ? (limits.allowedSymbols as string[])
+    : Array.isArray(limits.exchange?.symbols)
+    ? (limits.exchange?.symbols as string[])
+    : null;
+  const allowedExchanges = Array.isArray(limits.allowedExchanges)
+    ? (limits.allowedExchanges as string[])
+    : Array.isArray((limits.exchange as any)?.allowed)
+    ? ((limits.exchange as any)?.allowed as string[])
+    : null;
+  const maxDailyVolumeUsd = typeof (limits as any).maxDailyVolumeUsd === 'number'
+    ? Number((limits as any).maxDailyVolumeUsd)
+    : undefined;
+
+  const liveTradingAllowed = paperOnly ? false : allowLiveTrading;
+
+  return {
+    maxSymbols,
+    allowLiveTrading: liveTradingAllowed,
+    maxPerTradeUsd: maxPerTradeUsd ?? risk.perTradeUsd,
+    allowedSymbols,
+    maxExposureUsd,
+    paperOnly,
+    allowedExchanges,
+    maxDailyVolumeUsd,
+  };
+}
+
 export class ClientConfigService {
   private readonly clientsRepo: ClientsRepository;
   private readonly credentialsRepo: ClientApiCredentialsRepository;
@@ -164,6 +229,7 @@ export class ClientConfigService {
     risk: RiskConfig;
     exchangeId: string;
     guard: GuardLimits;
+    operations: OperationalLimits;
   }> {
     const client = await this.getClient(clientId);
     const limits = (client.limits ?? {}) as ClientLimits;
@@ -175,7 +241,13 @@ export class ClientConfigService {
     const risk = deriveRiskConfig(riskDefaults, limits.risk);
     const exchangeId = resolveExchangeId(limits, this.defaultExchange);
     const guard = deriveGuardLimits(limits.guard);
-    return { client, limits, risk, exchangeId, guard };
+    const operations = deriveOperationalLimits(limits, risk);
+    if (operations.allowedExchanges && operations.allowedExchanges.length > 0) {
+      if (!operations.allowedExchanges.includes(exchangeId)) {
+        throw new Error(`Exchange ${exchangeId} is not permitted for client ${clientId}`);
+      }
+    }
+    return { client, limits, risk, exchangeId, guard, operations };
   }
 
   async getClientConfig(clientId: string, exchangeName?: string): Promise<ClientConfig> {
@@ -195,6 +267,7 @@ export class ClientConfigService {
       limits: profile.limits,
       risk: profile.risk,
       guard: profile.guard,
+      operations: profile.operations,
       exchange: {
         id: exchangeId,
         apiKey,
