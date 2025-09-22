@@ -2,17 +2,6 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/app": "pages/app.js",
-  "/api/client/plans": "pages/api/client/plans.js",
-  "/api/client/metrics/stream": "pages/api/client/metrics/stream.js",
-  "/api/client/init": "pages/api/client/init.js",
-  "/api/client/credentials": "pages/api/client/credentials.js",
-  "/api/client/snapshot": "pages/api/client/snapshot.js",
-  "/api/client/audit": "pages/api/client/audit.js",
-  "/api/client/metrics": "pages/api/client/metrics.js",
-  "/api/client/history": "pages/api/client/history.js",
-  "/api/client/workers": "pages/api/client/workers.js",
-  "/api/client/agreements": "pages/api/client/agreements.js",
   "/api/auth/[...nextauth]": "pages/api/auth/[...nextauth].js",
-  "/": "pages/index.js"
+  "/app": "pages/app.js"
 }
