@@ -25,6 +25,7 @@ import {
   createCheckoutSession,
   handleStripeWebhook,
   verifyStripeSignature,
+  createBillingPortalSession, // added
 } from '../services/billing/stripeService';
 import { logger } from '../utils/logger';
 import { ClientAgreementsRepository } from '../db/clientAgreementsRepo';
@@ -95,6 +96,20 @@ function methodNotAllowed(res: ServerResponse) {
   sendJson(res, 405, { error: 'method_not_allowed' });
 }
 
+// Retry helper for transient DB issues (e.g., Neon cold start / network hiccups)
+async function retry<T>(fn: () => Promise<T>, opts: { attempts: number; delayMs: number }) {
+  let lastErr: unknown;
+  for (let i = 1; i <= opts.attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, opts.delayMs * i));
+    }
+  }
+  throw lastErr;
+}
+
 async function createContext(req: IncomingMessage, res: ServerResponse): Promise<RequestContext> {
   const parsedUrl = parse(req.url ?? '/', false);
   const pathname = parsedUrl.pathname ?? '/';
@@ -138,7 +153,11 @@ async function withErrorHandling(handler: () => Promise<void>, res: ServerRespon
 
 export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9300)) {
   const pool = getPool();
-  await runMigrations(pool);
+  await retry(async () => {
+    await runMigrations(pool);
+    await pool.query('SELECT 1'); // warm up the connection
+  }, { attempts: 5, delayMs: 1000 });
+
   const clientsRepo = new ClientsRepository(pool);
   const credsRepo = new ClientApiCredentialsRepository(pool);
   const configService = new ClientConfigService(pool);
@@ -223,14 +242,40 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
         if (!clientId || !planId || !successUrl || !cancelUrl) {
           throw new Error('missing_parameters');
         }
+        // Reuse existing Stripe customer if available
+        const existing = await clientsRepo.findById(clientId).catch(() => null);
         const session = await createCheckoutSession({
           clientId,
           planId,
           successUrl,
           cancelUrl,
           trialDays: typeof trialDays === 'number' ? trialDays : undefined,
+          customerId: existing?.stripeCustomerId ?? null,
         });
         sendJson(res, 200, { id: session.id, url: session.url });
+        return;
+      }
+
+      // New: Create Stripe Billing Portal session
+      if (ctx.pathname === '/billing/portal' && ctx.method === 'POST') {
+        if (!process.env.STRIPE_SECRET_KEY) {
+          throw new Error('stripe_not_configured');
+        }
+        const body = ctx.body ?? {};
+        const clientId = body.clientId ?? body.client_id;
+        const returnUrl = body.returnUrl ?? body.return_url;
+        if (!clientId || !returnUrl) {
+          throw new Error('missing_parameters');
+        }
+        const client = await clientsRepo.findById(clientId);
+        if (!client?.stripeCustomerId) {
+          throw new Error('customer_missing');
+        }
+        const portal = await createBillingPortalSession({
+          customerId: client.stripeCustomerId,
+          returnUrl,
+        });
+        sendJson(res, 200, { id: portal.id, url: portal.url });
         return;
       }
 

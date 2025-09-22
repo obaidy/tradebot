@@ -1,14 +1,14 @@
-import Head from 'next/head';
+// DELETE THIS FILE — revert to using pages/app/index.js as the only /app route.
 import { signOut, useSession } from 'next-auth/react';
 import { useEffect, useMemo, useState } from 'react';
-import { DashboardLayout } from '../../components/layout/DashboardLayout';
-import { Badge } from '../../components/ui/Badge';
-import { Button } from '../../components/ui/Button';
-import { Card } from '../../components/ui/Card';
-import { MetricCard } from '../../components/ui/MetricCard';
-import { DataTable, Column } from '../../components/ui/DataTable';
-import { useTableControls } from '../../components/ui/useTableControls';
-import { HeroVisualization } from '../../components/landing/HeroVisualization';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { MetricCard } from '@/components/ui/MetricCard';
+import { DataTable, Column } from '@/components/ui/DataTable';
+import { useTableControls } from '@/components/ui/useTableControls';
+import { HeroVisualization } from '@/components/landing/HeroVisualization';
 
 const REQUIRED_DOCUMENTS = [
   {
@@ -298,27 +298,37 @@ export default function Dashboard() {
       const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`;
       window.history.replaceState({}, '', newUrl);
     }
+    // Billing portal return
+    const portalDone = params.get('portal');
+    if (portalDone === 'done') {
+      setMessage('Billing portal closed. Your subscription details are refreshed.');
+      params.delete('portal');
+      const newSearch = params.toString();
+      const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`;
+      window.history.replaceState({}, '', newUrl);
+      refreshSnapshot().catch(() => {});
+    }
   }, []);
 
-  async function handlePlanCheckout(planId: string) {
+  async function handlePlanAction(planId: string) {
     try {
       setProcessingCheckout(true);
       setMessage(null);
       setError(null);
-      const checkout = await fetchJson('/api/client/billing/session', {
+      const isCurrent = billingInfo.planId === planId;
+      const action = isCurrent ? 'portal' : 'checkout';
+      const resp = await fetchJson('/api/client/billing/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({ planId, action }),
       });
-      if (checkout?.url) {
-        if (typeof window !== 'undefined') {
-          window.location.href = checkout.url;
-        }
+      if (resp?.url && typeof window !== 'undefined') {
+        window.location.href = resp.url;
         return;
       }
-      setMessage('Checkout created. Follow the instructions in the opened window.');
+      setMessage(isCurrent ? 'Opening billing portal…' : 'Opening checkout…');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Billing session failed');
+      setError(err instanceof Error ? err.message : 'Billing action failed');
     } finally {
       setProcessingCheckout(false);
     }
@@ -915,7 +925,7 @@ export default function Dashboard() {
                       </ul>
                       <Button
                         variant={isCurrent ? 'secondary' : 'primary'}
-                        onClick={() => handlePlanCheckout(plan.id)}
+                        onClick={() => handlePlanAction(plan.id)}
                         disabled={processingCheckout && !isCurrent}
                       >
                         {isCurrent ? 'Manage billing' : 'Upgrade'}

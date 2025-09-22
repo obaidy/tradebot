@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../../lib/authOptions';
-import { createBillingSessionForClient } from '../../../../lib/adminClient';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -15,23 +14,63 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    const action = (body?.action || 'checkout') as 'checkout' | 'portal';
+    const adminUrl = process.env.ADMIN_API_URL || 'http://localhost:9300';
+    const adminToken = process.env.ADMIN_API_TOKEN;
+    if (!adminToken) {
+      res.status(400).json({ error: 'admin_token_missing' });
+      return;
+    }
+    const origin = req.headers.origin || process.env.PORTAL_BASE_URL || 'http://localhost:3000';
+
+    if (action === 'portal') {
+      const returnUrl = `${origin}/app?portal=done`;
+      const resp = await fetch(`${adminUrl}/billing/portal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          clientId: session.user.id,
+          returnUrl,
+        }),
+      });
+      const payload = await resp.json();
+      if (!resp.ok) {
+        throw new Error(payload?.error || 'portal_session_failed');
+      }
+      res.status(200).json(payload);
+      return;
+    }
+
+    // default: checkout for a given plan
     const planId = body?.planId || body?.plan_id;
     if (!planId) {
       res.status(400).json({ error: 'plan_required' });
       return;
     }
-    const origin = req.headers.origin || process.env.PORTAL_BASE_URL || 'http://localhost:3000';
     const successUrl = `${origin}/app?checkout=success`;
     const cancelUrl = `${origin}/app?checkout=cancelled`;
-    const checkout = await createBillingSessionForClient({
-      clientId: session.user.id,
-      planId,
-      actor: session.user.email ?? session.user.id,
-      successUrl,
-      cancelUrl,
-      trialDays: 3,
+    const resp = await fetch(`${adminUrl}/billing/session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        clientId: session.user.id,
+        planId,
+        successUrl,
+        cancelUrl,
+        trialDays: 3,
+      }),
     });
-    res.status(200).json(checkout);
+    const payload = await resp.json();
+    if (!resp.ok) {
+      throw new Error(payload?.error || 'billing_session_failed');
+    }
+    res.status(200).json(payload);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'billing_session_failed' });
   }

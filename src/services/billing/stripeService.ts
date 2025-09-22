@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import { ClientsRepository } from '../../db/clientsRepo';
-import { buildPlanLimits, getPlanById } from '../../config/plans';
+import { PLAN_DEFINITIONS, buildPlanLimits, getPlanById } from '../../config/plans';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -25,6 +25,7 @@ export async function createCheckoutSession(options: {
   successUrl: string;
   cancelUrl: string;
   trialDays?: number;
+  customerId?: string | null; // allow reuse of existing Stripe customer
 }) {
   const plan = getPlanById(options.planId);
   if (!plan) {
@@ -41,6 +42,8 @@ export async function createCheckoutSession(options: {
     cancel_url: options.cancelUrl,
     client_reference_id: options.clientId,
     allow_promotion_codes: true,
+    // Reuse customer if we have it to avoid creating duplicates
+    customer: options.customerId ?? undefined,
     metadata: {
       client_id: options.clientId,
       plan_id: plan.id,
@@ -62,11 +65,31 @@ export async function createCheckoutSession(options: {
   return session;
 }
 
+// Create a Billing Portal session for an existing Stripe customer
+export async function createBillingPortalSession(options: {
+  customerId: string;
+  returnUrl: string;
+}) {
+  const stripe = getStripe();
+  const session = await stripe.billingPortal.sessions.create({
+    customer: options.customerId,
+    return_url: options.returnUrl,
+  });
+  return session;
+}
+
 function resolvePlanLimits(planId: string | null | undefined) {
   if (!planId) return null;
   const plan = getPlanById(planId);
   if (!plan) return null;
   return buildPlanLimits(plan);
+}
+
+// Helper: map Stripe price ID -> internal plan id
+function planIdFromPriceId(priceId: string | null | undefined): string | null {
+  if (!priceId) return null;
+  const plan = PLAN_DEFINITIONS.find((p) => p.stripePriceId === priceId);
+  return plan?.id ?? null;
 }
 
 export async function handleStripeWebhook(
@@ -113,12 +136,20 @@ export async function handleStripeWebhook(
     const subscription = payload.data?.object as Stripe.Subscription | undefined;
     if (!subscription) return;
     const clientId = subscription.metadata?.client_id;
-    const planId = subscription.metadata?.plan_id;
+    // Prefer deriving the plan from the price on the active subscription item
+    const firstItem = Array.isArray(subscription.items?.data) ? subscription.items.data[0] : undefined;
+    const priceId =
+      (firstItem?.price && typeof firstItem.price === 'object' ? (firstItem.price as Stripe.Price).id : null) ?? null;
+    const planIdDerived = planIdFromPriceId(priceId);
+    const planIdMeta = subscription.metadata?.plan_id;
+    const effectivePlanId = planIdDerived || planIdMeta || null;
+
     if (!clientId) return;
     const trialEndsAt = subscription.trial_end ? new Date(subscription.trial_end * 1000) : null;
     const billingStatus = subscription.status ?? 'active';
+
     await clientsRepo.updateBilling(clientId, {
-      planId: planId ?? undefined,
+      planId: effectivePlanId ?? undefined,
       billingStatus,
       trialEndsAt,
       stripeCustomerId:
@@ -128,14 +159,15 @@ export async function handleStripeWebhook(
       stripeSubscriptionId: subscription.id,
       billingAutoPaused: ['active', 'past_due', 'trialing'].includes(billingStatus) ? false : undefined,
     });
-    if (planId) {
-      const limits = resolvePlanLimits(planId);
+
+    if (effectivePlanId) {
+      const limits = resolvePlanLimits(effectivePlanId);
       if (limits) {
         await clientsRepo.upsert({
           id: clientId,
           name: clientId,
           owner: clientId,
-          plan: planId,
+          plan: effectivePlanId,
           limits,
           billingStatus,
         });
