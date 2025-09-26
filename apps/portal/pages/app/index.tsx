@@ -217,7 +217,7 @@ export default function Dashboard() {
         await fetchJson('/api/client/init', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ plan: 'starter' }),
+          body: JSON.stringify({}),
         });
         const [plansRes, snapshot, credsRes, auditRes, metricsRes, workersRes, historyRes, agreementsRes] = await Promise.all([
           fetchJson('/api/client/plans'),
