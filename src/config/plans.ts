@@ -77,6 +77,11 @@ export function getPlanById(planId: string) {
   return PLAN_DEFINITIONS.find((plan) => plan.id === planId) ?? null;
 }
 
+export function getPlanByPriceId(priceId: string | null | undefined) {
+  if (!priceId) return null;
+  return PLAN_DEFINITIONS.find((plan) => plan.stripePriceId === priceId) ?? null;
+}
+
 export function buildPlanLimits(plan: PlanDefinition) {
   return {
     guard: plan.limits.guard,

@@ -2,6 +2,8 @@ import { killSwitch } from './killSwitch';
 import { apiErrorCounter, pnlGauge } from '../telemetry/metrics';
 import { GuardStateRepository, GuardState } from '../db/guardStateRepo';
 import { Notifier } from '../alerts/notifier';
+import { logger } from '../utils/logger';
+import { errorMessage } from '../utils/formatError';
 
 export interface CircuitConfig {
   maxGlobalDrawdownUsd: number;
@@ -71,7 +73,14 @@ export class CircuitBreaker {
   recordTicker(timestamp: number) {
     if (!this.initialized) return;
     this.state.lastTickerTs = timestamp;
-    this.persist().catch(() => {});
+    this.persist().catch((error) => {
+      logger.error('guard_state_persist_failed', {
+        event: 'guard_state_persist_failed',
+        clientId: this.clientId ?? undefined,
+        stage: 'ticker',
+        error: errorMessage(error),
+      });
+    });
   }
 
   recordApiError(type: string) {
@@ -80,12 +89,33 @@ export class CircuitBreaker {
     this.state.apiErrorTimestamps.push(now);
     this.state.apiErrorTimestamps = this.state.apiErrorTimestamps.filter((ts) => now - ts <= 60 * 1000);
     apiErrorCounter.labels(this.clientId ?? 'unknown', type).inc();
-    this.persist().catch(() => {});
+    this.persist().catch((error) => {
+      logger.error('guard_state_persist_failed', {
+        event: 'guard_state_persist_failed',
+        clientId: this.clientId ?? undefined,
+        stage: 'api_error',
+        error: errorMessage(error),
+      });
+    });
     if (this.state.apiErrorTimestamps.length >= this.activeConfig.maxApiErrorsPerMin) {
       const message = `API error rate exceeded (${this.state.apiErrorTimestamps.length}/min, limit ${this.activeConfig.maxApiErrorsPerMin})`;
-      killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch(() => {});
+      killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch((error) => {
+        logger.error('kill_switch_activation_failed', {
+          event: 'kill_switch_activation_failed',
+          clientId: this.clientId ?? undefined,
+          reason: 'api_error_threshold',
+          error: errorMessage(error),
+        });
+      });
       if (this.clientId) {
-        Notifier.notifyClient({ clientId: this.clientId, message, subject: 'API Error Threshold' }).catch(() => {});
+        Notifier.notifyClient({ clientId: this.clientId, message, subject: 'API Error Threshold' }).catch((error) => {
+          logger.warn('notify_client_failed', {
+            event: 'notify_client_failed',
+            clientId: this.clientId,
+            subject: 'API Error Threshold',
+            error: errorMessage(error),
+          });
+        });
       }
     }
   }
@@ -107,20 +137,55 @@ export class CircuitBreaker {
       pnlGauge.labels(this.clientId ?? 'unknown').set(this.state.globalPnl);
       if (this.state.globalPnl <= -this.activeConfig.maxGlobalDrawdownUsd) {
         const message = `Global drawdown exceeded ${this.activeConfig.maxGlobalDrawdownUsd}`;
-        killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch(() => {});
+        killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch((error) => {
+          logger.error('kill_switch_activation_failed', {
+            event: 'kill_switch_activation_failed',
+            clientId: this.clientId ?? undefined,
+            reason: 'drawdown',
+            error: errorMessage(error),
+          });
+        });
         if (this.clientId) {
-          Notifier.notifyClient({ clientId: this.clientId, message, subject: 'Global Drawdown Exceeded' }).catch(() => {});
+        Notifier.notifyClient({ clientId: this.clientId, message, subject: 'Global Drawdown Exceeded' }).catch((error) => {
+          logger.warn('notify_client_failed', {
+            event: 'notify_client_failed',
+            clientId: this.clientId,
+            subject: 'Global Drawdown Exceeded',
+            error: errorMessage(error),
+          });
+        });
         }
       }
       if (this.state.runPnl <= -this.activeConfig.maxRunLossUsd) {
         const message = `Run loss exceeded ${this.activeConfig.maxRunLossUsd}`;
-        killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch(() => {});
+        killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch((error) => {
+          logger.error('kill_switch_activation_failed', {
+            event: 'kill_switch_activation_failed',
+            clientId: this.clientId ?? undefined,
+            reason: 'run_loss',
+            error: errorMessage(error),
+          });
+        });
         if (this.clientId) {
-          Notifier.notifyClient({ clientId: this.clientId, message, subject: 'Run Loss Threshold' }).catch(() => {});
+        Notifier.notifyClient({ clientId: this.clientId, message, subject: 'Run Loss Threshold' }).catch((error) => {
+          logger.warn('notify_client_failed', {
+            event: 'notify_client_failed',
+            clientId: this.clientId,
+            subject: 'Run Loss Threshold',
+            error: errorMessage(error),
+          });
+        });
         }
       }
     }
-    this.persist().catch(() => {});
+    this.persist().catch((error) => {
+      logger.error('guard_state_persist_failed', {
+        event: 'guard_state_persist_failed',
+        clientId: this.clientId ?? undefined,
+        stage: 'record_fill',
+        error: errorMessage(error),
+      });
+    });
   }
 
   checkStaleData() {
@@ -128,9 +193,23 @@ export class CircuitBreaker {
     const now = Date.now();
     if (now - this.state.lastTickerTs > this.activeConfig.staleTickerMs) {
       const message = 'Market data stale';
-      killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch(() => {});
+      killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch((error) => {
+        logger.error('kill_switch_activation_failed', {
+          event: 'kill_switch_activation_failed',
+          clientId: this.clientId ?? undefined,
+          reason: 'stale_data',
+          error: errorMessage(error),
+        });
+      });
       if (this.clientId) {
-        Notifier.notifyClient({ clientId: this.clientId, message, subject: 'Market Data Stale' }).catch(() => {});
+        Notifier.notifyClient({ clientId: this.clientId, message, subject: 'Market Data Stale' }).catch((error) => {
+          logger.warn('notify_client_failed', {
+            event: 'notify_client_failed',
+            clientId: this.clientId,
+            subject: 'Market Data Stale',
+            error: errorMessage(error),
+          });
+        });
       }
     }
   }

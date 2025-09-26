@@ -14,7 +14,10 @@ import { useTableControls } from '../../components/ui/useTableControls';
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
+    const detail = await res.json().catch((parseError) => {
+      console.error('[portal-admin] Failed to parse error response', parseError);
+      return {};
+    });
     throw new Error(detail.error || `Request failed (${res.status})`);
   }
   return res.json();

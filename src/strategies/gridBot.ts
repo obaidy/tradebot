@@ -15,11 +15,35 @@ import { orderReplacementCounter, orderCancelCounter, fillCounter, orderLatency 
 import { circuitBreaker } from '../guard/circuitBreaker';
 import { killSwitch } from '../guard/killSwitch';
 import { GuardStateRepository } from '../db/guardStateRepo';
+import { SpanStatusCode } from '@opentelemetry/api';
 import { logger, setLogContext } from '../utils/logger';
+import { retry } from '../utils/retry';
+import { startSpan } from '../telemetry/tracing';
 import { ClientConfigService } from '../services/clientConfig';
+
+type ExchangeOrder = {
+  id?: string;
+  status?: string;
+  filled?: number;
+  remaining?: number;
+  average?: number;
+  price?: number;
+  timestamp?: number;
+  fee?: { cost?: number } | null;
+};
+
+type ExchangeTicker = {
+  bid?: number | null;
+  ask?: number | null;
+  last?: number | null;
+  timestamp?: number;
+};
 
 const ORDER_POLL_INTERVAL_MS = 5000;
 const ORDER_TIMEOUT_MS = 1000 * 60 * 30;
+const EXCHANGE_RETRY_ATTEMPTS = CONFIG.EXCHANGE_RETRY.ATTEMPTS;
+const EXCHANGE_RETRY_DELAY_MS = CONFIG.EXCHANGE_RETRY.DELAY_MS;
+const EXCHANGE_RETRY_BACKOFF = CONFIG.EXCHANGE_RETRY.BACKOFF;
 const CSV_PATH = path.resolve(process.cwd(), 'planned_trades.csv');
 const DEFAULT_PLAN_JSON_PATH = path.resolve(process.cwd(), 'planned_summary.json');
 const CSV_HEADERS = ['timestamp', 'pair', 'side', 'price', 'amount', 'status', 'note', 'runId', 'correlationId'];
@@ -377,6 +401,12 @@ export interface OrderExecutionContext {
 }
 
 export async function executeBuyLevels(context: OrderExecutionContext) {
+  const span = startSpan('execute_buy_levels', {
+    clientId: context.clientId,
+    pair: context.pair,
+    gridSteps: context.buyLevels.length,
+  });
+  try {
   const orderConcurrency = Number(process.env.ORDER_CONCURRENCY || DEFAULT_ORDER_CONCURRENCY);
   const rateIntervalMs = Number(process.env.ORDER_RATE_INTERVAL_MS || DEFAULT_ORDER_RATE_INTERVAL_MS);
   const replaceTimeoutMs = Number(process.env.REPLACE_TIMEOUT_MS || DEFAULT_REPLACE_TIMEOUT_MS);
@@ -400,7 +430,7 @@ export async function executeBuyLevels(context: OrderExecutionContext) {
   const notify = context.sendNotification
     ? context.sendNotification
     : async (msg: string) => {
-        await Telegram.sendMessage(msg).catch(() => {});
+        await Telegram.sendMessage(msg);
       };
 
   if (killSwitch.isActive()) {
@@ -446,7 +476,7 @@ export async function executeBuyLevels(context: OrderExecutionContext) {
         replaceTimeoutMs,
         replaceSlippagePct,
       };
-      let result;
+      let result: { needsReplacement: boolean; nextPrice?: number } | null | undefined;
       try {
         result = await placeAndMonitorOrder(orderContext, notify);
       } catch (err) {
@@ -464,7 +494,7 @@ export async function executeBuyLevels(context: OrderExecutionContext) {
         await cancelOpenOrdersForRun(context);
         break;
       }
-      if (!result.needsReplacement) break;
+      if (!result || !result.needsReplacement) break;
       currentPrice = result.nextPrice ?? currentPrice;
       attempt += 1;
     }
@@ -492,6 +522,16 @@ export async function executeBuyLevels(context: OrderExecutionContext) {
     metrics: context.metrics,
     clientId: context.clientId,
   });
+  } catch (error) {
+    span.recordException(error as Error);
+    span.setStatus({
+      code: SpanStatusCode.ERROR,
+      message: errorMessage(error),
+    });
+    throw error;
+  } finally {
+    span.end();
+  }
 }
 
 async function cancelOpenOrdersForRun(context: OrderExecutionContext) {
@@ -556,9 +596,27 @@ async function placeAndMonitorOrder(
   }
   const orderPrice = Number(price.toFixed(8));
 
-  let exchangeOrder;
+  let exchangeOrder: ExchangeOrder;
   try {
-    exchangeOrder = await exchange.createLimitBuyOrder(pair, orderAmount, orderPrice);
+    exchangeOrder = await retry<ExchangeOrder>(
+      () => exchange.createLimitBuyOrder(pair, orderAmount, orderPrice),
+      {
+        attempts: EXCHANGE_RETRY_ATTEMPTS,
+        delayMs: EXCHANGE_RETRY_DELAY_MS,
+        backoffFactor: EXCHANGE_RETRY_BACKOFF,
+        onRetry: (error, attempt) => {
+          circuitBreaker.recordApiError('create_buy_order');
+          logger.warn('create_buy_order_retry', {
+            event: 'create_buy_order_retry',
+            runId: context.plan.runId,
+            pair,
+            correlationId,
+            attempt,
+            error: errorMessage(error),
+          });
+        },
+      }
+    );
   } catch (err) {
     circuitBreaker.recordApiError('create_buy_order');
     context.metrics!.buyCancels += 1;
@@ -602,16 +660,46 @@ async function placeAndMonitorOrder(
       orderCancelCounter.labels(context.clientId, 'buy').inc();
       throw new Error(`Kill switch active: ${killSwitch.getReason()}`);
     }
-    let updated;
+    const orderId = exchangeOrder.id;
+    if (!orderId) {
+      logger.warn('exchange_order_missing_id', {
+        event: 'exchange_order_missing_id',
+        runId: context.plan.runId,
+        pair,
+        correlationId,
+      });
+      break;
+    }
+
+    let updated: ExchangeOrder;
     try {
-      updated = await exchange.fetchOrder(exchangeOrder.id, pair);
+      updated = await retry<ExchangeOrder>(
+        () => exchange.fetchOrder(orderId, pair),
+        {
+          attempts: EXCHANGE_RETRY_ATTEMPTS,
+          delayMs: EXCHANGE_RETRY_DELAY_MS,
+          backoffFactor: EXCHANGE_RETRY_BACKOFF,
+          onRetry: (error, attempt) => {
+            circuitBreaker.recordApiError('fetch_order');
+            logger.warn('fetch_order_retry', {
+              event: 'fetch_order_retry',
+              runId: context.plan.runId,
+              pair,
+              correlationId,
+              orderId,
+              attempt,
+              error: errorMessage(error),
+            });
+          },
+        }
+      );
     } catch (err) {
       logger.warn('fetch_order_failed', {
         event: 'fetch_order_failed',
         runId: context.plan.runId,
         pair,
         correlationId,
-        orderId: exchangeOrder.id,
+        orderId,
         error: errorMessage(err),
       });
       await ordersRepo.updateOrder({
@@ -697,7 +785,33 @@ async function placeAndMonitorOrder(
     }
 
     if (needsReplacement) {
-      await exchange.cancelOrder(exchangeOrder.id, pair).catch(() => {});
+      await retry(
+        () => exchange.cancelOrder(orderId, pair),
+        {
+          attempts: EXCHANGE_RETRY_ATTEMPTS,
+          delayMs: EXCHANGE_RETRY_DELAY_MS,
+          backoffFactor: EXCHANGE_RETRY_BACKOFF,
+          onRetry: (error, attempt) => {
+            circuitBreaker.recordApiError('cancel_order');
+            logger.warn('cancel_order_retry', {
+              event: 'cancel_order_retry',
+              runId: context.plan.runId,
+              pair,
+              orderId,
+              attempt,
+              error: errorMessage(error),
+            });
+          },
+        }
+      ).catch((error) => {
+        logger.warn('cancel_order_failed', {
+          event: 'cancel_order_failed',
+          runId: context.plan.runId,
+          pair,
+          orderId,
+          error: errorMessage(error),
+        });
+      });
       await ordersRepo.updateOrder({
         orderId: dbOrder.id,
         status: 'cancelled',
@@ -723,10 +837,32 @@ async function placeAndMonitorOrder(
         state.tpPlaced += pendingTp;
       }
 
-      const ticker = await exchange.fetchTicker(pair);
+      const ticker = await retry<ExchangeTicker>(
+        () => exchange.fetchTicker(pair),
+        {
+          attempts: EXCHANGE_RETRY_ATTEMPTS,
+          delayMs: EXCHANGE_RETRY_DELAY_MS,
+          backoffFactor: EXCHANGE_RETRY_BACKOFF,
+          onRetry: (error, attempt) => {
+            circuitBreaker.recordApiError('fetch_ticker');
+            logger.warn('fetch_ticker_retry', {
+              event: 'fetch_ticker_retry',
+              runId: context.plan.runId,
+              pair,
+              attempt,
+              error: errorMessage(error),
+            });
+          },
+        }
+      );
       circuitBreaker.recordTicker(ticker.timestamp ?? Date.now());
       circuitBreaker.checkStaleData();
-      const basePrice = ticker?.bid ?? ticker?.last ?? referencePrice;
+      const basePriceCandidate = typeof ticker.bid === 'number'
+        ? ticker.bid
+        : typeof ticker.last === 'number'
+          ? ticker.last
+          : referencePrice;
+      const basePrice = basePriceCandidate || referencePrice;
       const adjustedPrice = Number((basePrice * (1 - replaceSlippagePct / 2)).toFixed(8));
 
       logger.warn('buy_order_replaced', {
@@ -764,9 +900,27 @@ async function placeTakeProfit(params: {
   if (sellAmount <= 0) return;
 
   await context.limiter!.wait();
-  let sellOrder;
+  let sellOrder: ExchangeOrder;
   try {
-    sellOrder = await context.exchange.createLimitSellOrder(context.pair, sellAmount, sellPrice);
+    sellOrder = await retry<ExchangeOrder>(
+      () => context.exchange.createLimitSellOrder(context.pair, sellAmount, sellPrice),
+      {
+        attempts: EXCHANGE_RETRY_ATTEMPTS,
+        delayMs: EXCHANGE_RETRY_DELAY_MS,
+        backoffFactor: EXCHANGE_RETRY_BACKOFF,
+        onRetry: (error, attempt) => {
+          circuitBreaker.recordApiError('create_sell_order');
+          logger.warn('create_sell_order_retry', {
+            event: 'create_sell_order_retry',
+            runId: context.plan.runId,
+            pair: context.pair,
+            correlationId,
+            attempt,
+            error: errorMessage(error),
+          });
+        },
+      }
+    );
   } catch (err) {
     logger.error('tp_order_failed', {
       event: 'tp_order_failed',
@@ -831,7 +985,7 @@ async function placeTakeProfit(params: {
 
 async function monitorSellOrder(params: {
   context: OrderExecutionContext;
-  order: any;
+  order: ExchangeOrder;
   dbOrderId: number;
   correlationId: string;
   targetAmount: number;
@@ -844,7 +998,7 @@ async function monitorSellOrder(params: {
   const replaceSlippagePct = Number(process.env.REPLACE_SLIPPAGE_PCT || DEFAULT_REPLACE_SLIPPAGE_PCT);
   const replaceMaxRetries = Number(process.env.REPLACE_MAX_RETRIES || DEFAULT_REPLACE_MAX_RETRIES);
 
-  let currentOrder = order;
+  let currentOrder: ExchangeOrder = order;
   let currentDbOrderId = dbOrderId;
   let lastReportedFilled = filledSoFar;
   let totalFilled = filledSoFar;
@@ -854,7 +1008,7 @@ async function monitorSellOrder(params: {
   const notify = context.sendNotification
     ? context.sendNotification
     : async (msg: string) => {
-        await Telegram.sendMessage(msg).catch(() => {});
+      await Telegram.sendMessage(msg);
       };
 
   while (totalFilled < targetAmount - context.marketMeta.stepSize / 2) {
@@ -862,7 +1016,36 @@ async function monitorSellOrder(params: {
     if (killSwitch.isActive()) {
       context.metrics!.sellCancels += 1;
       orderCancelCounter.labels(context.clientId, 'sell').inc();
-      await context.exchange.cancelOrder(currentOrder.id, context.pair).catch(() => {});
+      const currentOrderId = currentOrder.id;
+      if (currentOrderId) {
+        await retry(
+          () => context.exchange.cancelOrder(currentOrderId, context.pair),
+          {
+            attempts: EXCHANGE_RETRY_ATTEMPTS,
+            delayMs: EXCHANGE_RETRY_DELAY_MS,
+            backoffFactor: EXCHANGE_RETRY_BACKOFF,
+            onRetry: (error, attempt) => {
+              circuitBreaker.recordApiError('cancel_order');
+              logger.warn('cancel_order_retry', {
+                event: 'cancel_order_retry',
+                runId: context.plan.runId,
+                pair: context.pair,
+                orderId: currentOrderId,
+                attempt,
+                error: errorMessage(error),
+              });
+            },
+          }
+        ).catch((error) => {
+          logger.warn('cancel_order_failed', {
+            event: 'cancel_order_failed',
+            runId: context.plan.runId,
+            pair: context.pair,
+            orderId: currentOrderId,
+            error: errorMessage(error),
+          });
+        });
+      }
       await context.ordersRepo.updateOrder({
         orderId: currentDbOrderId,
         status: 'cancelled',
@@ -874,16 +1057,46 @@ async function monitorSellOrder(params: {
       return;
     }
 
-    let updated;
+    const currentOrderId = currentOrder.id;
+    if (!currentOrderId) {
+      logger.warn('tp_order_missing_id', {
+        event: 'tp_order_missing_id',
+        runId: context.plan.runId,
+        pair: context.pair,
+        correlationId,
+      });
+      break;
+    }
+
+    let updated: ExchangeOrder;
     try {
-      updated = await context.exchange.fetchOrder(currentOrder.id, context.pair);
+      updated = await retry<ExchangeOrder>(
+        () => context.exchange.fetchOrder(currentOrderId, context.pair),
+        {
+          attempts: EXCHANGE_RETRY_ATTEMPTS,
+          delayMs: EXCHANGE_RETRY_DELAY_MS,
+          backoffFactor: EXCHANGE_RETRY_BACKOFF,
+          onRetry: (error, attempt) => {
+            circuitBreaker.recordApiError('tp_fetch');
+            logger.warn('tp_fetch_retry', {
+              event: 'tp_fetch_retry',
+              runId: context.plan.runId,
+              pair: context.pair,
+              correlationId,
+              orderId: currentOrderId,
+              attempt,
+              error: errorMessage(error),
+            });
+          },
+        }
+      );
     } catch (err) {
       logger.warn('tp_fetch_failed', {
         event: 'tp_fetch_failed',
         runId: context.plan.runId,
         pair: context.pair,
         correlationId,
-        orderId: currentOrder.id,
+        orderId: currentOrderId,
         error: errorMessage(err),
       });
       await context.ordersRepo.updateOrder({
@@ -941,7 +1154,7 @@ async function monitorSellOrder(params: {
         remainingAmount: 0,
         raw: updated as any,
       });
-      await notify(`TP filled ${context.pair} ${totalFilled}@${updated.average ?? updated.price ?? initialPrice} (order ${currentOrder.id})`);
+      await notify(`TP filled ${context.pair} ${totalFilled}@${updated.average ?? updated.price ?? initialPrice} (order ${currentOrderId})`);
       orderLatency.labels(context.clientId, 'sell').observe(Date.now() - orderStart);
       return;
     }
@@ -952,7 +1165,15 @@ async function monitorSellOrder(params: {
     const needsReplacement = elapsed > replaceTimeoutMs || priceDelta > replaceSlippagePct;
 
     if (needsReplacement && attempt < replaceMaxRetries) {
-      await context.exchange.cancelOrder(currentOrder.id, context.pair).catch(() => {});
+      await context.exchange.cancelOrder(currentOrderId, context.pair).catch((error) => {
+        logger.warn('cancel_order_failed', {
+          event: 'cancel_order_failed',
+          runId: context.plan.runId,
+          pair: context.pair,
+          orderId: currentOrderId,
+          error: errorMessage(error),
+        });
+      });
       context.metrics!.sellReplacements += 1;
       orderReplacementCounter.labels(context.clientId, 'sell').inc();
       await context.ordersRepo.updateOrder({
@@ -964,10 +1185,32 @@ async function monitorSellOrder(params: {
         raw: updated as any,
       });
 
-      const ticker = await context.exchange.fetchTicker(context.pair);
+      const ticker = await retry<ExchangeTicker>(
+        () => context.exchange.fetchTicker(context.pair),
+        {
+          attempts: EXCHANGE_RETRY_ATTEMPTS,
+          delayMs: EXCHANGE_RETRY_DELAY_MS,
+          backoffFactor: EXCHANGE_RETRY_BACKOFF,
+          onRetry: (error, attempt) => {
+            circuitBreaker.recordApiError('fetch_ticker');
+            logger.warn('fetch_ticker_retry', {
+              event: 'fetch_ticker_retry',
+              runId: context.plan.runId,
+              pair: context.pair,
+              attempt,
+              error: errorMessage(error),
+            });
+          },
+        }
+      );
       circuitBreaker.recordTicker(ticker.timestamp ?? Date.now());
       circuitBreaker.checkStaleData();
-      const basePrice = ticker?.ask ?? ticker?.last ?? referencePrice;
+      const basePriceCandidate = typeof ticker.ask === 'number'
+        ? ticker.ask
+        : typeof ticker.last === 'number'
+          ? ticker.last
+          : referencePrice;
+      const basePrice = basePriceCandidate || referencePrice;
       const nextPrice = Number((basePrice * (1 - replaceSlippagePct / 2)).toFixed(8));
 
       logger.warn('tp_order_replaced', {
@@ -975,7 +1218,7 @@ async function monitorSellOrder(params: {
         runId: context.plan.runId,
         pair: context.pair,
         correlationId,
-        orderId: currentOrder.id,
+        orderId: currentOrderId,
         remaining,
         nextPrice,
       });
@@ -983,7 +1226,25 @@ async function monitorSellOrder(params: {
       await context.limiter!.wait();
       let newOrder;
       try {
-        newOrder = await context.exchange.createLimitSellOrder(context.pair, remaining, nextPrice);
+        newOrder = await retry<ExchangeOrder>(
+          () => context.exchange.createLimitSellOrder(context.pair, remaining, nextPrice),
+          {
+            attempts: EXCHANGE_RETRY_ATTEMPTS,
+            delayMs: EXCHANGE_RETRY_DELAY_MS,
+            backoffFactor: EXCHANGE_RETRY_BACKOFF,
+            onRetry: (error, retryAttempt) => {
+              circuitBreaker.recordApiError('create_sell_order');
+              logger.warn('create_sell_order_retry', {
+                event: 'create_sell_order_retry',
+                runId: context.plan.runId,
+                pair: context.pair,
+                correlationId,
+                attempt: retryAttempt,
+                error: errorMessage(error),
+              });
+            },
+          }
+        );
       } catch (err) {
         circuitBreaker.recordApiError('create_sell_order');
         logger.error('tp_replace_failed', {
@@ -1000,7 +1261,8 @@ async function monitorSellOrder(params: {
         orderLatency.labels(context.clientId, 'sell').observe(Date.now() - orderStart);
         return;
       }
-      await context.sendNotification?.(`Replaced TP ${context.pair} ${remaining}@${nextPrice} id:${newOrder.id}`);
+      const newOrderId = newOrder.id ?? 'unknown';
+      await context.sendNotification?.(`Replaced TP ${context.pair} ${remaining}@${nextPrice} id:${newOrderId}`);
       const newDbOrder = await context.ordersRepo.insertOrder({
         runId: context.plan.runId,
         exchangeOrderId: newOrder.id,
@@ -1013,7 +1275,7 @@ async function monitorSellOrder(params: {
         raw: newOrder as any,
       });
 
-      currentOrder = newOrder;
+      currentOrder = { ...newOrder };
       currentDbOrderId = newDbOrder.id;
       lastReportedFilled = 0;
       orderStart = Date.now();
@@ -1024,7 +1286,18 @@ async function monitorSellOrder(params: {
     if (needsReplacement && attempt >= replaceMaxRetries) {
       context.metrics!.sellCancels += 1;
       orderCancelCounter.labels(context.clientId, 'sell').inc();
-      await context.exchange.cancelOrder(currentOrder.id, context.pair).catch(() => {});
+      const currentOrderId = currentOrder.id;
+      if (currentOrderId) {
+        await context.exchange.cancelOrder(currentOrderId, context.pair).catch((error) => {
+          logger.warn('cancel_order_failed', {
+            event: 'cancel_order_failed',
+            runId: context.plan.runId,
+            pair: context.pair,
+            orderId: currentOrderId,
+            error: errorMessage(error),
+          });
+        });
+      }
       await context.ordersRepo.updateOrder({
         orderId: currentDbOrderId,
         status: 'cancelled',
@@ -1039,6 +1312,7 @@ async function monitorSellOrder(params: {
         pair: context.pair,
         correlationId,
         remaining,
+        orderId: currentOrderId ?? 'unknown',
       });
       orderLatency.labels(context.clientId, 'sell').observe(Date.now() - orderStart);
       return;
@@ -1326,8 +1600,29 @@ export async function runGridOnce(
 
   await reconcileOpenOrders(pool, { orders: ordersRepo, runs: runsRepo, fills: fillsRepo }, ex as any, clientId);
 
-  const ticker = await ex.fetchTicker(pair);
-  const mid = (ticker.bid + ticker.ask) / 2;
+  const ticker = await retry<ExchangeTicker>(
+    () => ex.fetchTicker(pair),
+    {
+      attempts: EXCHANGE_RETRY_ATTEMPTS,
+      delayMs: EXCHANGE_RETRY_DELAY_MS,
+      backoffFactor: EXCHANGE_RETRY_BACKOFF,
+      onRetry: (error, attempt) => {
+        circuitBreaker.recordApiError('fetch_ticker');
+        logger.warn('fetch_ticker_retry', {
+          event: 'fetch_ticker_retry',
+          pair,
+          attempt,
+          error: errorMessage(error),
+        });
+      },
+    }
+  );
+  const fallbackPrice = typeof ticker.last === 'number' ? ticker.last : 0;
+  const bidPrice = typeof ticker.bid === 'number' ? ticker.bid : fallbackPrice;
+  const askPrice = typeof ticker.ask === 'number' ? ticker.ask : (fallbackPrice || bidPrice);
+  const mid = (bidPrice + askPrice) / 2;
+  const tickerBid = bidPrice;
+  const tickerAsk = askPrice;
   circuitBreaker.recordTicker(ticker.timestamp ?? Date.now());
   circuitBreaker.checkStaleData();
 
@@ -1480,8 +1775,8 @@ export async function runGridOnce(
     summary,
     metadata: {
       mid,
-      tickerBid: ticker.bid,
-      tickerAsk: ticker.ask,
+      tickerBid,
+      tickerAsk,
       stepSize,
       basePrecision,
       minNotional: minNotional ?? null,
@@ -1766,7 +2061,7 @@ export async function runGridOnce(
           correlationId: lvl.correlationId,
         });
 
-        await Telegram.sendMessage(`[PAPER] BUY ${lvl.amount}@${lvl.price} -> SELL ${lvl.amount}@${sellPrice}`).catch(() => {});
+        await Telegram.sendMessage(`[PAPER] BUY ${lvl.amount}@${lvl.price} -> SELL ${lvl.amount}@${sellPrice}`);
         await sleep(200);
       }
 
@@ -1800,7 +2095,7 @@ export async function runGridOnce(
     buyLevels: plan.buyLevels,
     appendCsv: (row) => appendCsvRow(row),
     sendNotification: async (message: string) => {
-      await Telegram.sendMessage(message).catch(() => {});
+      await Telegram.sendMessage(message);
     },
     metrics: {
       buyReplacements: 0,

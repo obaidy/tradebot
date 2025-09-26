@@ -122,7 +122,10 @@ const MIGRATION_QUERIES: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_client_terms_ack_client_doc ON client_terms_ack(client_id, document_type);`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_client_terms_ack ON client_terms_ack(client_id, document_type, version);`,
   `CREATE INDEX IF NOT EXISTS idx_bot_orders_run_status ON bot_orders(run_id, status);`,
-  `CREATE INDEX IF NOT EXISTS idx_bot_fills_run ON bot_fills(run_id);`
+  `CREATE INDEX IF NOT EXISTS idx_bot_orders_run_side ON bot_orders(run_id, side);`,
+  `CREATE INDEX IF NOT EXISTS idx_bot_fills_run ON bot_fills(run_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_bot_fills_timestamp ON bot_fills(fill_timestamp DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_bot_runs_client_status ON bot_runs(client_id, status);`
 ];
 
 const ranPools = new WeakSet<Pool>();

@@ -123,4 +123,79 @@ describe('Stripe billing webhook handler', () => {
     expect(client?.stripeSubscriptionId).toBeNull();
     expect(client?.billingAutoPaused).toBe(true);
   });
+
+  it('infers plan from subscription price when metadata is missing', async () => {
+    await clientsRepo.upsert({
+      id: 'client-infer-plan',
+      name: 'client-infer-plan',
+      owner: 'client-infer-plan',
+      plan: 'starter',
+      limits: {
+        maxSymbols: 3,
+      },
+    });
+
+    const updateEvent = {
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: 'sub_infer',
+          metadata: {
+            client_id: 'client-infer-plan',
+          },
+          status: 'active',
+          trial_end: Math.floor(Date.now() / 1000) + 7200,
+          customer: 'cus_infer',
+          items: {
+            data: [
+              {
+                price: {
+                  id: 'price_pro_test',
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    await handleStripeWebhook(updateEvent as any, clientsRepo);
+    const client = await clientsRepo.findById('client-infer-plan');
+    expect(client?.plan).toBe('pro');
+    expect(client?.limits?.maxSymbols).toBe(10);
+  });
+
+  it('auto-pauses billing when subscription status is unpaid', async () => {
+    await clientsRepo.upsert({
+      id: 'client-unpaid',
+      name: 'client-unpaid',
+      owner: 'client-unpaid',
+      plan: 'pro',
+      billingStatus: 'active',
+      stripeSubscriptionId: 'sub_unpaid',
+      limits: {
+        maxSymbols: 10,
+      },
+    });
+
+    const updateEvent = {
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: 'sub_unpaid',
+          metadata: {
+            client_id: 'client-unpaid',
+            plan_id: 'pro',
+          },
+          status: 'unpaid',
+          customer: 'cus_unpaid',
+        },
+      },
+    };
+
+    await handleStripeWebhook(updateEvent as any, clientsRepo);
+    const client = await clientsRepo.findById('client-unpaid');
+    expect(client?.billingStatus).toBe('unpaid');
+    expect(client?.billingAutoPaused).toBe(true);
+  });
 });

@@ -11,3 +11,5 @@ dist/
 npm-debug.log
 coverage/
 reports/releases/
+.next/
+.gridbot-locks/

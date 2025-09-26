@@ -58,7 +58,15 @@ function emit(level: LogLevel, msg: string, meta?: LogMeta) {
   if (ingestionWebhook) {
     axios
       .post(ingestionWebhook, entry, { timeout: 2000 })
-      .catch(() => {});
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: 'warn',
+          msg: 'log_ingest_failed',
+          error: message,
+        }));
+      });
   }
 }
 

@@ -129,10 +129,22 @@ function applyClientSnapshotState(
 async function fetchJson(url: string, options?: RequestInit) {
   const res = await fetch(url, options);
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
+    const detail = await res.json().catch((parseError) => {
+      console.error('[portal] Failed to parse error response', parseError);
+      return {};
+    });
     throw new Error(detail.error || `Request failed (${res.status})`);
   }
   return res.json();
+}
+
+async function safeFetchJson<T>(url: string, fallback: T, options?: RequestInit): Promise<T> {
+  try {
+    return await fetchJson(url, options);
+  } catch (error) {
+    console.error('[portal] Request failed', url, error);
+    return fallback;
+  }
 }
 
 export default function Dashboard() {
@@ -212,10 +224,10 @@ export default function Dashboard() {
           fetchJson('/api/client/snapshot'),
           fetchJson('/api/client/credentials'),
           fetchJson('/api/client/audit'),
-          fetchJson('/api/client/metrics').catch(() => null),
-          fetchJson('/api/client/workers').catch(() => []),
-          fetchJson('/api/client/history').catch(() => null),
-          fetchJson('/api/client/agreements').catch(() => null),
+          safeFetchJson('/api/client/metrics', null),
+          safeFetchJson('/api/client/workers', []),
+          safeFetchJson('/api/client/history', null),
+          safeFetchJson('/api/client/agreements', null),
         ]);
         if (cancelled) return;
         setPlans(plansRes);
@@ -284,16 +296,32 @@ export default function Dashboard() {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const checkoutStatus = params.get('checkout');
+    const sessionId = params.get('session_id');
     if (checkoutStatus === 'success') {
-      setMessage('Subscription updated successfully.');
-      params.delete('checkout');
-      const newSearch = params.toString();
-      const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`;
-      window.history.replaceState({}, '', newUrl);
-      refreshSnapshot().catch(() => {});
+      (async () => {
+        try {
+          if (sessionId) {
+            await fetchJson('/api/client/billing/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionId }),
+            });
+          }
+          setMessage('Subscription updated successfully.');
+          params.delete('checkout');
+          params.delete('session_id');
+          const newSearch = params.toString();
+          const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`;
+          window.history.replaceState({}, '', newUrl);
+          await refreshSnapshot();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Billing sync failed');
+        }
+      })();
     } else if (checkoutStatus === 'cancelled') {
       setMessage('Checkout cancelled. No changes were made.');
       params.delete('checkout');
+      params.delete('session_id');
       const newSearch = params.toString();
       const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`;
       window.history.replaceState({}, '', newUrl);
@@ -319,6 +347,28 @@ export default function Dashboard() {
       setMessage('Checkout created. Follow the instructions in the opened window.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Billing session failed');
+    } finally {
+      setProcessingCheckout(false);
+    }
+  }
+
+  async function handleManageBilling() {
+    try {
+      setProcessingCheckout(true);
+      setMessage(null);
+      setError(null);
+      const portal = await fetchJson('/api/client/billing/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (portal?.url && typeof window !== 'undefined') {
+        window.location.href = portal.url;
+        return;
+      }
+      setMessage('Manage billing session created. Follow the instructions in the opened window.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Billing portal failed');
     } finally {
       setProcessingCheckout(false);
     }
@@ -391,7 +441,7 @@ export default function Dashboard() {
   }
 
   async function refreshWorkers() {
-    const workerList = await fetchJson('/api/client/workers').catch(() => []);
+    const workerList = await safeFetchJson('/api/client/workers', []);
     setWorkers(workerList);
     try {
       await refreshSnapshot();
@@ -887,6 +937,9 @@ export default function Dashboard() {
               <div style={{ display: 'grid', gap: '1rem' }}>
                 {plans.map((plan) => {
                   const isCurrent = billingInfo.planId === plan.id;
+                  const planIndex = plans.findIndex((p) => p.id === plan.id);
+                  const currentIndex = currentPlan ? plans.findIndex((p) => p.id === currentPlan.id) : planIndex;
+                  const isDowngrade = !isCurrent && planIndex < currentIndex;
                   return (
                     <Card
                       key={plan.id}
@@ -915,10 +968,10 @@ export default function Dashboard() {
                       </ul>
                       <Button
                         variant={isCurrent ? 'secondary' : 'primary'}
-                        onClick={() => handlePlanCheckout(plan.id)}
-                        disabled={processingCheckout && !isCurrent}
+                        onClick={() => (isCurrent ? handleManageBilling() : handlePlanCheckout(plan.id))}
+                        disabled={processingCheckout}
                       >
-                        {isCurrent ? 'Manage billing' : 'Upgrade'}
+                        {isCurrent ? 'Manage billing' : isDowngrade ? 'Downgrade' : 'Upgrade'}
                       </Button>
                     </Card>
                   );

@@ -6,6 +6,7 @@ import { runMigrations } from '../db/migrations';
 import { ClientApiCredentialsRepository, ClientsRepository } from '../db/clientsRepo';
 import { ClientConfigService } from '../services/clientConfig';
 import { initSecretManager } from '../secrets/secretManager';
+import { logger } from '../utils/logger';
 import {
   deleteClientCredentials,
   fetchClientSnapshot,
@@ -255,7 +256,12 @@ async function main() {
         throw new Error(`Unknown command: ${command}`);
     }
   } finally {
-    await closePool().catch(() => {});
+    await closePool().catch((error) => {
+      logger.warn('close_pool_failed', {
+        event: 'close_pool_failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 }
 

@@ -23,7 +23,9 @@ import { enqueueClientTask, isClientTaskQueueEnabled } from '../jobs/clientTaskQ
 import { ClientWorkersRepository } from '../db/clientWorkersRepo';
 import {
   createCheckoutSession,
+  createBillingPortalSession,
   handleStripeWebhook,
+  syncCheckoutSession,
   verifyStripeSignature,
 } from '../services/billing/stripeService';
 import { logger } from '../utils/logger';
@@ -223,14 +225,67 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
         if (!clientId || !planId || !successUrl || !cancelUrl) {
           throw new Error('missing_parameters');
         }
+        const existingClient = await clientsRepo.findById(clientId).catch((error) => {
+          logger.warn('client_lookup_failed', {
+            event: 'client_lookup_failed',
+            clientId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        });
+        const contactInfo = existingClient?.contactInfo ?? null;
+        const contactEmail =
+          typeof body.email === 'string'
+            ? body.email
+            : typeof (contactInfo as any)?.email === 'string'
+              ? (contactInfo as any).email
+              : null;
         const session = await createCheckoutSession({
           clientId,
           planId,
           successUrl,
           cancelUrl,
           trialDays: typeof trialDays === 'number' ? trialDays : undefined,
+          stripeCustomerId: existingClient?.stripeCustomerId ?? null,
+          customerEmail: contactEmail,
         });
         sendJson(res, 200, { id: session.id, url: session.url });
+        return;
+      }
+
+      if (ctx.pathname === '/billing/session/sync' && ctx.method === 'POST') {
+        if (!process.env.STRIPE_SECRET_KEY) {
+          throw new Error('stripe_not_configured');
+        }
+        const body = ctx.body ?? {};
+        const sessionId = body.sessionId ?? body.session_id;
+        if (!sessionId) {
+          throw new Error('session_id_required');
+        }
+        const client = await syncCheckoutSession(String(sessionId), clientsRepo);
+        sendJson(res, 200, { client });
+        return;
+      }
+
+      if (ctx.pathname === '/billing/portal' && ctx.method === 'POST') {
+        if (!process.env.STRIPE_SECRET_KEY) {
+          throw new Error('stripe_not_configured');
+        }
+        const body = ctx.body ?? {};
+        const clientId = body.clientId ?? body.client_id;
+        const returnUrl = body.returnUrl ?? body.return_url;
+        if (!clientId || !returnUrl) {
+          throw new Error('missing_parameters');
+        }
+        const client = await clientsRepo.findById(clientId);
+        if (!client || !client.stripeCustomerId) {
+          throw new Error('stripe_customer_missing');
+        }
+        const portal = await createBillingPortalSession({
+          customerId: client.stripeCustomerId,
+          returnUrl,
+        });
+        sendJson(res, 200, { url: portal.url });
         return;
       }
 
@@ -325,12 +380,12 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
 
       if (ctx.pathname === '/clients' && ctx.method === 'POST') {
         const body = ctx.body ?? {};
-        const plan = body.plan ?? 'starter';
+        const existing = body.id ? await clientsRepo.findById(body.id) : null;
+        const plan = body.plan ?? existing?.plan ?? 'starter';
         const planDef = getPlanById(plan);
         if (!planDef) {
           throw new Error(`Unknown plan: ${plan}`);
         }
-        const existing = body.id ? await clientsRepo.findById(body.id) : null;
         const defaultTrialEnds = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
         const defaultLimits = buildPlanLimits(planDef);
         const record = await upsertClientRecord(clientsRepo, {
@@ -881,13 +936,51 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
     }, res);
   });
 
-  server.listen(port, () => {
-    // eslint-disable-next-line no-console
-    console.log(`Admin server listening on :${port}`);
+  const maxPortRetries = Number(process.env.ADMIN_PORT_RETRY_LIMIT || '5');
+  let currentPort = port;
+  let retriesLeft = maxPortRetries;
+
+  await new Promise<void>((resolve, reject) => {
+    const onListening = () => {
+      server.removeListener('error', onError);
+      resolve();
+    };
+
+    const onError = (err: NodeJS.ErrnoException) => {
+      server.removeListener('listening', onListening);
+      if (err && err.code === 'EADDRINUSE' && retriesLeft > 0) {
+        logger.warn('admin_port_in_use', {
+          event: 'admin_port_in_use',
+          requestedPort: currentPort,
+          nextPort: currentPort + 1,
+        });
+        retriesLeft -= 1;
+        currentPort += 1;
+        attemptListen();
+        return;
+      }
+      reject(err);
+    };
+
+    const attemptListen = () => {
+      server.once('listening', onListening);
+      server.once('error', onError);
+      server.listen(currentPort);
+    };
+
+    attemptListen();
   });
 
+  // eslint-disable-next-line no-console
+  console.log(`Admin server listening on :${currentPort}`);
+
   const shutdown = async () => {
-    await closePool().catch(() => {});
+    await closePool().catch((error) => {
+      logger.warn('close_pool_failed', {
+        event: 'close_pool_failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     server.close();
   };
 

@@ -53,6 +53,10 @@ Key environment variables and defaults are captured in `src/config.ts`. Frequent
 | `DASHBOARD_PORT` | `9102` | HTML dashboard server port. |
 | `LOG_INGEST_WEBHOOK` | _(unset)_ | Optional webhook that receives every JSON log entry. |
 | `WALKFORWARD_CONFIG` | `configs/walkforward.json` | Alternate path for walk-forward automation config. |
+| `ENABLE_REDIS_CACHE` | `false` | Toggle Redis-backed caching; set `true` only when a Redis endpoint is available. |
+| `EXCHANGE_RETRY_ATTEMPTS` | `5` | Retry attempts for CCXT order/ticker calls before surfacing an error. |
+| `EXCHANGE_RETRY_DELAY_MS` | `500` | Initial delay (ms) between retries; exponential backoff is applied. |
+| `EXCHANGE_RETRY_BACKOFF` | `2` | Multiplier applied to retry delays (e.g., 500 → 1000 → 2000 ms). |
 
 All new logs are structured JSON (`timestamp`, `level`, `msg`, plus `runId`, `pair`, etc.) so you can stream them directly into log aggregation or alerting systems.
 
@@ -190,7 +194,7 @@ curl -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" \
 
 #### Paper-run queue & worker
 
-- Paper validations are dispatched to a BullMQ queue (Redis). Set `REDIS_URL` to a reachable Redis instance (local or managed cloud).
+- Paper validations are dispatched to a BullMQ queue (Redis). Set `REDIS_URL` to a reachable Redis instance (local or managed cloud) and flip `ENABLE_REDIS_CACHE=true` once the service is available (leave it `false` locally to skip connection attempts).
 - Start the worker alongside your services:
   ```bash
   npm run paper:worker

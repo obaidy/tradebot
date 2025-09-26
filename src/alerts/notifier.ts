@@ -2,6 +2,9 @@ import axios from 'axios';
 import { CONFIG } from '../config';
 import { ClientsRepository } from '../db/clientsRepo';
 import { getPool } from '../db/pool';
+import { logger } from '../utils/logger';
+import { errorMessage, formatError } from '../utils/formatError';
+import { retry } from '../utils/retry';
 import { Telegram } from './telegram';
 
 type AlertOptions = {
@@ -12,23 +15,44 @@ type AlertOptions = {
 
 async function sendEmail(to: string, subject: string, text: string) {
   if (!CONFIG.SENDGRID_API_KEY || !CONFIG.ALERT_EMAIL_FROM) return;
-  await axios
-    .post(
-      'https://api.sendgrid.com/v3/mail/send',
-      {
-        personalizations: [{ to: [{ email: to }] }],
-        from: { email: CONFIG.ALERT_EMAIL_FROM },
-        subject,
-        content: [{ type: 'text/plain', value: text }],
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${CONFIG.SENDGRID_API_KEY}`,
-          'Content-Type': 'application/json',
+  await retry(
+    () =>
+      axios.post(
+        'https://api.sendgrid.com/v3/mail/send',
+        {
+          personalizations: [{ to: [{ email: to }] }],
+          from: { email: CONFIG.ALERT_EMAIL_FROM },
+          subject,
+          content: [{ type: 'text/plain', value: text }],
         },
-      }
-    )
-    .catch(() => {});
+        {
+          headers: {
+            Authorization: `Bearer ${CONFIG.SENDGRID_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      ),
+    {
+      attempts: 3,
+      delayMs: 500,
+      backoffFactor: 2,
+      onRetry: (error, attempt) => {
+        logger.warn('email_alert_retry', {
+          event: 'email_alert_retry',
+          to,
+          attempt,
+          error: formatError(error),
+        });
+      },
+    }
+  )
+    .catch((error) => {
+      logger.warn('email_alert_failed', {
+        event: 'email_alert_failed',
+        to,
+        error: formatError(error),
+      });
+    });
 }
 
 async function sendSms(to: string, text: string) {
@@ -39,20 +63,48 @@ async function sendSms(to: string, text: string) {
     To: to,
     Body: text,
   });
-  await axios
-    .post(url, params, {
-      auth: {
-        username: CONFIG.TWILIO_ACCOUNT_SID,
-        password: CONFIG.TWILIO_AUTH_TOKEN,
+  await retry(
+    () =>
+      axios.post(url, params, {
+        auth: {
+          username: CONFIG.TWILIO_ACCOUNT_SID,
+          password: CONFIG.TWILIO_AUTH_TOKEN,
+        },
+      }),
+    {
+      attempts: 3,
+      delayMs: 500,
+      backoffFactor: 2,
+      onRetry: (error, attempt) => {
+        logger.warn('sms_alert_retry', {
+          event: 'sms_alert_retry',
+          to,
+          attempt,
+          error: formatError(error),
+        });
       },
-    })
-    .catch(() => {});
+    }
+  )
+    .catch((error) => {
+      logger.warn('sms_alert_failed', {
+        event: 'sms_alert_failed',
+        to,
+        error: formatError(error),
+      });
+    });
 }
 
 async function loadClientContacts(clientId: string) {
   const pool = getPool();
   const clientsRepo = new ClientsRepository(pool);
-  const client = await clientsRepo.findById(clientId).catch(() => null);
+  const client = await clientsRepo.findById(clientId).catch((error) => {
+    logger.warn('client_contact_lookup_failed', {
+      event: 'client_contact_lookup_failed',
+      clientId,
+      error: errorMessage(error),
+    });
+    return null;
+  });
   if (!client) return { email: null, phone: null, telegramChatId: null };
   const contact = (client.contactInfo ?? {}) as Record<string, any>;
   return {
@@ -76,7 +128,7 @@ export const Notifier = {
     }
     const contacts = await loadClientContacts(options.clientId);
     if (contacts.telegramChatId) {
-      await Telegram.sendMessage(text, contacts.telegramChatId).catch(() => {});
+      await Telegram.sendMessage(text, contacts.telegramChatId);
     }
     if (contacts.email) {
       await sendEmail(contacts.email, subject, text);

@@ -122,7 +122,7 @@ export async function runGuardedGrid(
       pair,
       limit,
     });
-    await Telegram.sendMessage(msg).catch(() => {});
+    await Telegram.sendMessage(msg);
     // Print planned summary for inspection if possible, then return
     await printPlannedSummaryIfAvailable(pair, gridParams, apiKey, apiSecret);
     return;
@@ -166,7 +166,7 @@ export async function runGuardedGrid(
     meanRevertPct: gridParams.meanRevertPct,
     minAtrPct: gridParams.minAtrPct,
   });
-  await Telegram.sendMessage(msg).catch(() => {});
+  await Telegram.sendMessage(msg);
 
   if (!isFinite(mid) || !isFinite(atr) || !isFinite(price)) {
     const skipMsg = `GUARD: insufficient data (mid=${mid}, atr=${atr}, price=${price}). Skipping.`;
@@ -177,7 +177,7 @@ export async function runGuardedGrid(
       atr,
       price,
     });
-    await Telegram.sendMessage(skipMsg).catch(() => {});
+    await Telegram.sendMessage(skipMsg);
     // still print planned summary for inspection
     await printPlannedSummaryIfAvailable(pair, gridParams, apiKey, apiSecret);
     return;
@@ -195,7 +195,7 @@ export async function runGuardedGrid(
       allowedLow,
       allowedHigh,
     });
-    await Telegram.sendMessage(skipMsg).catch(() => {});
+    await Telegram.sendMessage(skipMsg);
     // print planned summary for inspection
     await printPlannedSummaryIfAvailable(pair, gridParams, apiKey, apiSecret);
     return;
@@ -209,7 +209,7 @@ export async function runGuardedGrid(
       atrPct,
       minAtrPct: gridParams.minAtrPct,
     });
-    await Telegram.sendMessage(skipMsg).catch(() => {});
+    await Telegram.sendMessage(skipMsg);
     // print planned summary for inspection
     await printPlannedSummaryIfAvailable(pair, gridParams, apiKey, apiSecret);
     return;
@@ -231,6 +231,6 @@ export async function runGuardedGrid(
       event: "guard_runner_missing",
       pair,
     });
-    await Telegram.sendMessage(err).catch(() => {});
+    await Telegram.sendMessage(err);
   }
 }

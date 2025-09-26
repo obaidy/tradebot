@@ -21,11 +21,11 @@ async function check() {
     const msg = `MONITOR: price=${price.toFixed(2)}, sma${smaWindow}=${sma.toFixed(2)}, price<=sma? ${price <= sma}`;
     console.log(msg);
     if (price <= sma) {
-      await Telegram.sendMessage(`GUARD TRIGGER: ${msg}`).catch(()=>{});
+      await Telegram.sendMessage(`GUARD TRIGGER: ${msg}`);
     }
   } catch (e) {
     console.error("MONITOR ERROR:", e);
-    await Telegram.sendMessage(`MONITOR ERROR: ${String(e)}`).catch(()=>{});
+    await Telegram.sendMessage(`MONITOR ERROR: ${String(e)}`);
   }
 }
 

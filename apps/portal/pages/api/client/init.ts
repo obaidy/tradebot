@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const clientId = session.user.id;
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const plan = body?.plan ?? 'starter';
+    const plan = body?.plan;
     const name = body?.name ?? session.user.name ?? 'Unnamed Client';
     const owner = body?.owner ?? session.user.email ?? session.user.id;
     const client = await initClient({ id: clientId, name, owner, plan, email: session.user.email ?? undefined });

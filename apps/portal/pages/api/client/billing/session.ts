@@ -21,8 +21,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
     const origin = req.headers.origin || process.env.PORTAL_BASE_URL || 'http://localhost:3000';
-    const successUrl = `${origin}/app?checkout=success`;
-    const cancelUrl = `${origin}/app?checkout=cancelled`;
+    const successUrl = `${origin}/app?checkout=success&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${origin}/app?checkout=cancelled&session_id={CHECKOUT_SESSION_ID}`;
     const checkout = await createBillingSessionForClient({
       clientId: session.user.id,
       planId,
