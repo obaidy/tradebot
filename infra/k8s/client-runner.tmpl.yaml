@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-runner-${CLIENT_ID}
+  labels:
+    app: client-runner
+    client-id: "${CLIENT_ID}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client-runner
+      client-id: "${CLIENT_ID}"
+  template:
+    metadata:
+      labels:
+        app: client-runner
+        client-id: "${CLIENT_ID}"
+    spec:
+      imagePullSecrets:
+        - name: registry-tradebot-reg
+      volumes:
+        - name: do-pg-ca
+          secret:
+            secretName: do-pg-ca
+      containers:
+        - name: runner
+          image: registry.digitalocean.com/tradebot-reg/tradebot-runner:${RUNNER_TAG}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CLIENT_ID
+          value: "{{CLIENT_ID}}"
+        - name: NODE_EXTRA_CA_CERTS
+          value: /etc/ssl/do/ca.crt
+        - name: PATH
+          value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          envFrom:
+            - secretRef:
+                name: tradebot-secrets
+          volumeMounts:
+            - name: do-pg-ca
+              mountPath: /etc/ssl/do
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

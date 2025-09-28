@@ -15,6 +15,45 @@ const metrics = [
   { label: 'Latency guard', value: metricsPlaceholders.latency, accent: 'warning' as const },
 ];
 
+const strategiesShowcase = [
+  {
+    id: 'grid',
+    name: 'Grid Bot',
+    headline: 'Adaptive mean-reversion engine',
+    description:
+      'Deploy paper grids in minutes, auto-tune buy/sell levels with regime analysis, and graduate to live once telemetry signs off.',
+    plans: 'Starter · Pro',
+    highlights: ['Paper + Live', 'BTC / ETH / majors', 'Risk-guarded execution'],
+  },
+  {
+    id: 'mev',
+    name: 'MEV Arb Bot',
+    headline: 'Flashbots-powered sandwiching',
+    description:
+      'Monitor mainnet mempools, assemble private bundles, and dispatch through Flashbots with guard rails baked in.',
+    plans: 'Pro',
+    highlights: ['Flashbots relay ready', 'Live only', 'Private key isolation'],
+  },
+  {
+    id: 'momentum',
+    name: 'Momentum Scout',
+    headline: 'Trend-following with volatility filters',
+    description:
+      'Ride intraday breakouts while dynamic trailing stops and volatility guards protect against sharp reversals.',
+    plans: 'Pro (beta)',
+    highlights: ['Paper + Live', 'Multi-venue routing', 'Adaptive risk sizing'],
+  },
+  {
+    id: 'dca',
+    name: 'DCA Accumulator',
+    headline: 'Systematic dollar-cost averaging',
+    description:
+      'Automate treasury accumulation across majors with configurable cadence, slippage controls, and guardrail alerts.',
+    plans: 'Starter · Pro',
+    highlights: ['Paper + Live', 'Schedule based', 'Escalation alerts'],
+  },
+];
+
 export default function LandingPage() {
   const fakeSeries = Array.from({ length: 90 }, (_, i) => Math.sin(i / 6) * 12 + i * 0.4 + 60);
   return (
@@ -27,8 +66,69 @@ export default function LandingPage() {
         />
       </Head>
       <div style={{ position: 'relative', overflow: 'hidden' }}>
+        <header
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+            backdropFilter: 'blur(18px)',
+            background: 'linear-gradient(90deg, rgba(5,8,22,0.85), rgba(5,8,22,0.6))',
+            borderBottom: '1px solid rgba(148,163,184,0.12)',
+          }}
+        >
+          <div
+            className="container"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '1.25rem 0',
+              gap: '1.5rem',
+            }}
+          >
+            <Link href="/" legacyBehavior>
+              <a style={{ display: 'inline-flex', alignItems: 'center', gap: '0.65rem', color: '#E2E8F0', fontWeight: 700 }}>
+                <span
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, rgba(56,189,248,0.35), rgba(99,102,241,0.35))',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1.1rem',
+                  }}
+                >
+                  TB
+                </span>
+                TradeBot
+              </a>
+            </Link>
+            <nav style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+              <Link href="/#why" legacyBehavior>
+                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>Why TradeBot</a>
+              </Link>
+              <Link href="/#strategies" legacyBehavior>
+                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>Strategies</a>
+              </Link>
+              <Link href="/#pricing" legacyBehavior>
+                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>Pricing</a>
+              </Link>
+              <Link href="/#faq" legacyBehavior>
+                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>FAQ</a>
+              </Link>
+              <Link href="/app" legacyBehavior>
+                <a>
+                  <Button variant="secondary">Sign in</Button>
+                </a>
+              </Link>
+            </nav>
+          </div>
+        </header>
+
         <main>
-          <Section spacing="6rem 0">
+          <Section spacing="6rem 0" id="hero">
             <div
               style={{
                 display: 'grid',
@@ -53,7 +153,7 @@ export default function LandingPage() {
                       <Button>{callouts.hero.primaryCta}</Button>
                     </a>
                   </Link>
-                  <Link href="/app" legacyBehavior>
+                  <Link href="/#strategies" legacyBehavior>
                     <a>
                       <Button variant="secondary">{callouts.hero.secondaryCta}</Button>
                     </a>
@@ -84,7 +184,59 @@ export default function LandingPage() {
             </div>
           </Section>
 
-          <Section spacing="5rem 0">
+          <Section spacing="5rem 0" id="strategies">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
+              <div style={{ textAlign: 'center', maxWidth: 720, margin: '0 auto', display: 'grid', gap: '1rem' }}>
+                <Badge tone="primary">Bot lineup</Badge>
+                <h2 className="section-heading">Choose the strategy that fits your book</h2>
+                <p className="section-subheading">
+                  Every bot ships with promotion gates, audit logs, and guard rails that mirror the operator console. Start in paper, then graduate to live when your plan unlocks it.
+                </p>
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gap: '1.5rem',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+                }}
+              >
+                {strategiesShowcase.map((strategy) => {
+                  const plansLower = strategy.plans.toLowerCase();
+                  const badgeTone: 'success' | 'secondary' | 'warning' = plansLower.includes('beta')
+                    ? 'warning'
+                    : plansLower.includes('pro') && !plansLower.includes('starter')
+                      ? 'secondary'
+                      : 'success';
+                  return (
+                    <Card key={strategy.id} hoverLift style={{ padding: '2rem', display: 'grid', gap: '1.3rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3 style={{ margin: 0 }}>{strategy.name}</h3>
+                        <Badge tone={badgeTone}>{strategy.plans}</Badge>
+                      </div>
+                      <p style={{ margin: 0, color: '#C7D2FE', fontSize: '1.05rem' }}>{strategy.headline}</p>
+                      <p style={{ margin: 0, color: '#94A3B8', lineHeight: 1.7 }}>{strategy.description}</p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        {strategy.highlights.map((item) => (
+                          <Badge key={item} tone="neutral">
+                            {item}
+                          </Badge>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <Link href={`/app?strategy=${strategy.id}`} legacyBehavior>
+                          <a>
+                            <Button variant="secondary">Preview in dashboard</Button>
+                          </a>
+                        </Link>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          </Section>
+
+          <Section spacing="5rem 0" id="why">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem', alignItems: 'center' }}>
               <div style={{ textAlign: 'center', maxWidth: '720px' }}>
                 <Badge tone="primary">Why TradeBot</Badge>
@@ -170,7 +322,44 @@ export default function LandingPage() {
 
           <div className="section-divider" />
 
-          <Section spacing="4rem 0" align="center">
+          <Section spacing="5rem 0" id="about" align="center">
+            <div style={{ maxWidth: '820px', display: 'grid', gap: '1.5rem' }}>
+              <Badge tone="primary">About TradeBot</Badge>
+              <h2 className="section-heading">Built by operators, for operators</h2>
+              <p className="section-subheading" style={{ margin: '0 auto' }}>
+                We are an ops-obsessed team of ex-quant traders and SREs. Every feature ships after living in our own desks—telemetry, guard rails, billing, and release artefacts included.
+              </p>
+              <div
+                style={{
+                  display: 'grid',
+                  gap: '1rem',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                }}
+              >
+                {[
+                  {
+                    title: 'Operator-first design',
+                    body: 'Dashboards, alerts, and approvals mirror real desks so your team can adopt without retraining.',
+                  },
+                  {
+                    title: 'Security baked in',
+                    body: 'Hardware key support, secret rotation, and private bundle routing keep keys off shared hosts.',
+                  },
+                  {
+                    title: 'Human-in-the-loop',
+                    body: 'Promotion gates ensure no strategy graduates to live without explicit human approval.',
+                  },
+                ].map((item) => (
+                  <Card key={item.title} elevation="none" style={{ padding: '1.75rem', background: 'rgba(17,24,39,0.65)' }}>
+                    <h3 style={{ margin: 0 }}>{item.title}</h3>
+                    <p style={{ margin: '0.65rem 0 0', color: '#94A3B8' }}>{item.body}</p>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </Section>
+
+          <Section spacing="4rem 0" align="center" id="pricing">
             <div style={{ maxWidth: '760px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               <Badge tone="primary">What operators say</Badge>
               <h2 className="section-heading">Trusted by systematic trading desks</h2>
@@ -240,7 +429,7 @@ export default function LandingPage() {
             </div>
           </Section>
 
-          <Section spacing="4rem 0">
+          <Section spacing="4rem 0" id="faq">
             <div
               style={{
                 display: 'grid',

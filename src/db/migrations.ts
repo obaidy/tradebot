@@ -28,6 +28,15 @@ const MIGRATION_QUERIES: string[] = [
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (client_id, exchange_name)
     );`,
+  `CREATE TABLE IF NOT EXISTS client_strategy_secrets (
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      strategy_id TEXT NOT NULL,
+      secret_enc TEXT NOT NULL,
+      metadata_json JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (client_id, strategy_id)
+    );`,
   `CREATE TABLE IF NOT EXISTS bot_runs (
       run_id TEXT PRIMARY KEY,
       owner TEXT NOT NULL,

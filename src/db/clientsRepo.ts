@@ -214,6 +214,15 @@ export interface ClientApiCredentialRow {
   createdAt: Date;
 }
 
+export interface ClientStrategySecretRow {
+  clientId: string;
+  strategyId: string;
+  secretEnc: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface ClientApiCredentialUpsert {
   clientId: string;
   exchangeName: string;
@@ -294,5 +303,57 @@ export class ClientApiCredentialsRepository {
       clientId,
       exchangeName,
     ]);
+  }
+}
+
+export interface ClientStrategySecretUpsert {
+  clientId: string;
+  strategyId: string;
+  secretEnc: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export class ClientStrategySecretsRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async get(clientId: string, strategyId: string): Promise<ClientStrategySecretRow | null> {
+    const res = await this.pool.query(
+      `SELECT * FROM client_strategy_secrets WHERE client_id = $1 AND strategy_id = $2`,
+      [clientId, strategyId]
+    );
+    if (!res.rows.length) return null;
+    return this.mapRow(res.rows[0]);
+  }
+
+  async upsert(input: ClientStrategySecretUpsert): Promise<ClientStrategySecretRow> {
+    const res = await this.pool.query(
+      `INSERT INTO client_strategy_secrets (client_id, strategy_id, secret_enc, metadata_json)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (client_id, strategy_id) DO UPDATE
+       SET secret_enc = EXCLUDED.secret_enc,
+           metadata_json = EXCLUDED.metadata_json,
+           updated_at = NOW()
+       RETURNING *`,
+      [input.clientId, input.strategyId, input.secretEnc, input.metadata ?? null]
+    );
+    return this.mapRow(res.rows[0]);
+  }
+
+  async delete(clientId: string, strategyId: string) {
+    await this.pool.query(`DELETE FROM client_strategy_secrets WHERE client_id = $1 AND strategy_id = $2`, [
+      clientId,
+      strategyId,
+    ]);
+  }
+
+  private mapRow(row: any): ClientStrategySecretRow {
+    return {
+      clientId: row.client_id,
+      strategyId: row.strategy_id,
+      secretEnc: row.secret_enc,
+      metadata: parseJsonValue<Record<string, unknown>>(row.metadata_json),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
   }
 }

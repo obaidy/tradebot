@@ -41,6 +41,10 @@ export async function fetchPlans() {
   return adminRequest('/plans');
 }
 
+export async function fetchStrategies() {
+  return adminRequest('/strategies');
+}
+
 export async function initClient(payload: {
   id: string;
   name: string;
@@ -93,6 +97,30 @@ export async function storeCredentials(clientId: string, actor: string, payload:
   });
 }
 
+export async function fetchStrategySecret(clientId: string, strategyId: string) {
+  return adminRequest(`/clients/${clientId}/strategies/${strategyId}/secret`);
+}
+
+export async function storeStrategySecret(
+  clientId: string,
+  strategyId: string,
+  actor: string,
+  payload: { privateKey: string }
+) {
+  return adminRequest(`/clients/${clientId}/strategies/${strategyId}/secret`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    actor,
+  });
+}
+
+export async function deleteStrategySecret(clientId: string, strategyId: string, actor: string) {
+  return adminRequest(`/clients/${clientId}/strategies/${strategyId}/secret`, {
+    method: 'DELETE',
+    actor,
+  });
+}
+
 export async function listAudit(clientId: string, limit = 20) {
   return adminRequest(`/clients/${clientId}/audit?limit=${limit}`);
 }
@@ -102,6 +130,27 @@ export async function triggerPaperRun(clientId: string, actor: string) {
     method: 'POST',
     body: JSON.stringify({}),
     actor,
+  });
+}
+
+export async function runClientStrategy(payload: {
+  clientId: string;
+  actor: string;
+  strategyId: string;
+  runMode?: string;
+  pair?: string;
+  config?: Record<string, unknown>;
+}) {
+  const body: Record<string, unknown> = {
+    strategyId: payload.strategyId,
+    runMode: payload.runMode,
+    pair: payload.pair,
+    config: payload.config,
+  };
+  return adminRequest(`/clients/${payload.clientId}/run`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    actor: payload.actor,
   });
 }
 

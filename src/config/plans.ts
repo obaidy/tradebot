@@ -1,4 +1,7 @@
-export type PlanId = 'starter' | 'pro';
+import type { PlanId } from './planTypes';
+
+import type { StrategyId } from '../strategies/types';
+export { PlanId } from './planTypes';
 
 export interface PlanDefinition {
   id: PlanId | string;
@@ -6,6 +9,7 @@ export interface PlanDefinition {
   priceUsd: number;
   description: string;
   features: string[];
+  strategies: StrategyId[];
   stripePriceId?: string;
   limits: {
     maxSymbols: number;
@@ -31,6 +35,7 @@ export const PLAN_DEFINITIONS: PlanDefinition[] = [
     priceUsd: 49,
     description: 'Single exchange, paper-first onboarding, email support.',
     features: ['Paper trading only', 'One exchange connection', 'Baseline metrics dashboard'],
+    strategies: ['grid'],
     stripePriceId: process.env.STRIPE_STARTER_PRICE_ID || 'price_starter_test',
     limits: {
       maxSymbols: 3,
@@ -54,6 +59,7 @@ export const PLAN_DEFINITIONS: PlanDefinition[] = [
     priceUsd: 199,
     description: 'Multi-exchange, live trading allowed, advanced support.',
     features: ['Live trading unlock', 'Multiple exchange keys', 'Advanced metrics + alerts'],
+    strategies: ['grid', 'mev'],
     stripePriceId: process.env.STRIPE_PRO_PRICE_ID || 'price_pro_test',
     limits: {
       maxSymbols: 10,

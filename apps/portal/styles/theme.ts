@@ -56,9 +56,9 @@ export const callouts = {
     headline: 'Automated crypto execution built for pros',
     subheadline:
       'Deploy adaptive grid strategies, run paper canaries, and go live with full guard rails on a single control plane.',
-    primaryCta: 'Launch Your First Grid',
-    secondaryCta: 'View Live Telemetry',
-    trustBadges: ['Binance', 'Bybit', 'Coinbase Advanced', 'Stripe Billing'],
+    primaryCta: 'Sign in to the Portal',
+    secondaryCta: 'Explore the Bot Lineup',
+    trustBadges: ['Flashbots Ready', 'Audited Guard Rails', 'Stripe Billing', '24/7 Ops Desk'],
   },
   featureSections: [
     {

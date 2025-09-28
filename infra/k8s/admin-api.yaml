@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-api
+  labels:
+    app: admin-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-api
+  template:
+    metadata:
+      labels:
+        app: admin-api
+    spec:
+      imagePullSecrets:
+        - name: registry-tradebot-reg
+      volumes:
+        - name: do-pg-ca
+          secret:
+            secretName: do-pg-ca
+      containers:
+        - name: admin-api
+          image: registry.digitalocean.com/tradebot-reg/tradebot-admin:e6662d9
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9300
+          envFrom:
+            - secretRef:
+                name: tradebot-secrets
+          env:
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/ssl/do/ca.crt
+          volumeMounts:
+            - name: do-pg-ca
+              mountPath: /etc/ssl/do
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 9300
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 9300
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-api
+  labels:
+    app: admin-api
+spec:
+  selector:
+    app: admin-api
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 9300

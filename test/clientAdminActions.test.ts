@@ -1,16 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { newDb } from 'pg-mem';
 import { runMigrations } from '../src/db/migrations';
-import { ClientsRepository, ClientApiCredentialsRepository } from '../src/db/clientsRepo';
+import {
+  ClientsRepository,
+  ClientApiCredentialsRepository,
+  ClientStrategySecretsRepository,
+} from '../src/db/clientsRepo';
 import { ClientConfigService } from '../src/services/clientConfig';
 import {
   deleteClientCredentials,
   fetchClientSnapshot,
   fetchClients,
   listClientCredentials,
+  fetchStrategySecretSummary,
+  storeStrategySecretRecord,
   storeClientCredentials,
   upsertClientRecord,
+  deleteStrategySecretRecord,
 } from '../src/admin/clientAdminActions';
+import { ethers } from 'ethers';
 
 function createPool() {
   const db = newDb({ autoCreateForeignKeyIndices: true });
@@ -24,6 +32,7 @@ describe('clientAdminActions', () => {
   let clientsRepo: ClientsRepository;
   let credsRepo: ClientApiCredentialsRepository;
   let configService: ClientConfigService;
+  let strategySecretsRepo: ClientStrategySecretsRepository;
 
   beforeEach(async () => {
     const ctx = createPool();
@@ -31,6 +40,7 @@ describe('clientAdminActions', () => {
     await runMigrations(pool);
     clientsRepo = new ClientsRepository(pool);
     credsRepo = new ClientApiCredentialsRepository(pool);
+    strategySecretsRepo = new ClientStrategySecretsRepository(pool);
     configService = new ClientConfigService(pool);
     process.env.CLIENT_MASTER_KEY = 'test-master-key';
   });
@@ -74,5 +84,24 @@ describe('clientAdminActions', () => {
     await deleteClientCredentials(credsRepo, 'client-a', 'binance');
     const credsAfterDelete = await listClientCredentials(credsRepo, 'client-a');
     expect(credsAfterDelete).toHaveLength(0);
+
+    const initialSecret = await fetchStrategySecretSummary(strategySecretsRepo, 'client-a', 'mev');
+    expect(initialSecret.hasSecret).toBe(false);
+
+    const wallet = ethers.Wallet.createRandom();
+    await storeStrategySecretRecord(configService, {
+      clientId: 'client-a',
+      strategyId: 'mev',
+      secret: wallet.privateKey,
+      metadata: { address: wallet.address },
+    });
+
+    const storedSecret = await fetchStrategySecretSummary(strategySecretsRepo, 'client-a', 'mev');
+    expect(storedSecret.hasSecret).toBe(true);
+    expect(storedSecret.address).toBe(wallet.address);
+
+    await deleteStrategySecretRecord(configService, 'client-a', 'mev');
+    const afterDelete = await fetchStrategySecretSummary(strategySecretsRepo, 'client-a', 'mev');
+    expect(afterDelete.hasSecret).toBe(false);
   });
 });

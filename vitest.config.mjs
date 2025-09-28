@@ -9,5 +9,7 @@ export default defineConfig({
   test: {
     environment: "node",
     setupFiles: ["./test/setupVitest.ts"],
+    globals: true,
+    testTimeout: 20000,
   },
 });

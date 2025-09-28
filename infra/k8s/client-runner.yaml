@@ -4,52 +4,36 @@ metadata:
   name: client-runner-{{CLIENT_ID}}
   labels:
     app: client-runner
-    client_id: "{{CLIENT_ID}}"
+    client-id: {{CLIENT_ID}}
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: client-runner
-      client_id: "{{CLIENT_ID}}"
+      client-id: {{CLIENT_ID}}
   template:
     metadata:
       labels:
         app: client-runner
-        client_id: "{{CLIENT_ID}}"
+        client-id: {{CLIENT_ID}}
     spec:
+      imagePullSecrets:
+        - name: registry-tradebot-reg
       containers:
-        - name: client-runner
-          image: ghcr.io/your-org/tradebot:latest
-          command: ['node', 'dist/workers/clientRunner.js']
+        - name: runner
+          image: registry.digitalocean.com/tradebot-reg/tradebot-runner:REPLACE_WITH_YOUR_RUNNER_TAG
+          imagePullPolicy: IfNotPresent
           env:
-            - name: NODE_ENV
-              value: production
             - name: CLIENT_ID
               value: "{{CLIENT_ID}}"
-            - name: PG_URL
-              valueFrom:
-                secretKeyRef:
-                  name: tradebot-secrets
-                  key: PG_URL
-            - name: CLIENT_MASTER_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: tradebot-secrets
-                  key: CLIENT_MASTER_KEY
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: tradebot-secrets
-                  key: REDIS_URL
-            - name: ADMIN_API_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: tradebot-secrets
-                  key: ADMIN_API_TOKEN
+          envFrom:
+            - secretRef:
+                name: tradebot-secrets
           resources:
-            requests:
-              cpu: "250m"
-              memory: "256Mi"
-            limits:
-              cpu: "1"
-              memory: "512Mi"
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+          # if your runner exposes a health port, wire a probe; otherwise remove
+          # readinessProbe:
+          #   tcpSocket: { port: 9000 }
+          #   initialDelaySeconds: 5
+          #   periodSeconds: 5

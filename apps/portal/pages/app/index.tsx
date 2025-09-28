@@ -37,6 +37,7 @@ type Plan = {
   description: string;
   priceUsd: number;
   features: string[];
+  strategies: string[];
   limits: {
     maxSymbols: number;
     allowLiveTrading: boolean;
@@ -46,6 +47,28 @@ type Plan = {
     maxExposureUsd: number;
     maxDailyVolumeUsd: number;
   };
+};
+
+type StrategyRequirement = {
+  type: 'env';
+  keys: string[];
+  message?: string;
+  mode?: 'all' | 'any';
+};
+
+type StrategySummary = {
+  id: string;
+  name: string;
+  description: string;
+  allowedPlans: string[];
+  defaultPair: string;
+  supportsPaper: boolean;
+  supportsLive: boolean;
+  supportsSummary: boolean;
+  status: 'active' | 'beta' | 'coming_soon';
+  ctaLabel?: string;
+  ctaDescription?: string;
+  requirements?: StrategyRequirement[];
 };
 
 type AuditEntry = {
@@ -69,6 +92,15 @@ type InventoryRow = {
   baseBalance: number;
   quoteBalance: number;
   exposureUsd: number | null;
+};
+
+type StrategySecretStatus = {
+  hasSecret: boolean;
+  address?: string | null;
+  updatedAt?: string | null;
+  balanceWei?: string | null;
+  balanceEth?: string | null;
+  balanceError?: string | null;
 };
 
 function formatDate(input: string) {
@@ -126,6 +158,22 @@ function applyClientSnapshotState(
   });
 }
 
+function humanizeStrategyError(message: string, strategyName: string) {
+  if (message === 'client_task_queue_disabled') {
+    return 'Live runs are unavailable because the client task queue is disabled. Please contact support to configure Redis.';
+  }
+  if (message === 'strategy_requirements_missing') {
+    return `${strategyName} is missing required configuration. Check environment secrets before retrying.`;
+  }
+  if (message === 'mev_bot_config_error') {
+    return 'MEV bot configuration error. Verify RPC URL, private key, and token settings.';
+  }
+  if (message.startsWith('strategy_not_permitted')) {
+    return `${strategyName} is not enabled for your current plan.`;
+  }
+  return message;
+}
+
 async function fetchJson(url: string, options?: RequestInit) {
   const res = await fetch(url, options);
   if (!res.ok) {
@@ -150,10 +198,12 @@ async function safeFetchJson<T>(url: string, fallback: T, options?: RequestInit)
 export default function Dashboard() {
   const { data: session, status } = useSession({ required: true });
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [strategies, setStrategies] = useState<StrategySummary[]>([]);
   const [credentials, setCredentials] = useState<any[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [metrics, setMetrics] = useState<any | null>(null);
   const [workers, setWorkers] = useState<any[]>([]);
+  const [mevWallet, setMevWallet] = useState<StrategySecretStatus | null>(null);
   const [clientState, setClientState] = useState<{ isPaused: boolean; killRequested: boolean }>({
     isPaused: false,
     killRequested: false,
@@ -219,8 +269,21 @@ export default function Dashboard() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({}),
         });
-        const [plansRes, snapshot, credsRes, auditRes, metricsRes, workersRes, historyRes, agreementsRes] = await Promise.all([
+        const [
+          plansRes,
+          strategiesRes,
+          mevSecretRes,
+          snapshot,
+          credsRes,
+          auditRes,
+          metricsRes,
+          workersRes,
+          historyRes,
+          agreementsRes,
+        ] = await Promise.all([
           fetchJson('/api/client/plans'),
+          fetchJson('/api/client/strategies'),
+          safeFetchJson('/api/client/strategies/mev', null),
           fetchJson('/api/client/snapshot'),
           fetchJson('/api/client/credentials'),
           fetchJson('/api/client/audit'),
@@ -231,6 +294,8 @@ export default function Dashboard() {
         ]);
         if (cancelled) return;
         setPlans(plansRes);
+        setStrategies(strategiesRes);
+        setMevWallet(mevSecretRes);
         applyClientSnapshotState(snapshot, {
           setClientState,
           setBillingInfo,
@@ -440,6 +505,74 @@ export default function Dashboard() {
     }
   }
 
+  async function handleStrategyRun(strategy: StrategySummary, runMode: 'paper' | 'live') {
+    try {
+      setMessage(null);
+      setError(null);
+      await fetchJson('/api/client/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: strategy.id,
+          runMode,
+          pair: strategy.defaultPair,
+        }),
+      });
+      const modeLabel = runMode === 'live' ? 'live' : 'paper';
+      setMessage(`${strategy.name} ${modeLabel} run queued.`);
+      await Promise.all([refreshAudit(), refreshWorkers()]);
+    } catch (err) {
+      const rawMessage = err instanceof Error ? err.message : 'strategy_run_failed';
+      setError(humanizeStrategyError(rawMessage, strategy.name));
+    }
+  }
+
+  async function refreshMevWalletStatus() {
+    const status = await safeFetchJson('/api/client/strategies/mev', null);
+    setMevWallet(status);
+  }
+
+  async function handleSetMevKey() {
+    const input = typeof window !== 'undefined' ? window.prompt('Enter your MEV private key (0x...)') : null;
+    if (!input) return;
+    try {
+      setError(null);
+      setMessage(null);
+      await fetchJson('/api/client/strategies/mev', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ privateKey: input.trim() }),
+      });
+      setMessage('MEV private key stored. Fund the wallet before launching live runs.');
+      await refreshMevWalletStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'mev_key_store_failed');
+    }
+  }
+
+  async function handleDeleteMevKey() {
+    const confirmed = typeof window === 'undefined' ? false : window.confirm('Remove the stored MEV private key? Runs will be blocked until a new key is added.');
+    if (!confirmed) return;
+    try {
+      setError(null);
+      setMessage(null);
+      await fetchJson('/api/client/strategies/mev', { method: 'DELETE' });
+      setMessage('MEV private key removed. Add a new key to resume live MEV runs.');
+      await refreshMevWalletStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'mev_key_delete_failed');
+    }
+  }
+
+  function handleCopyMevAddress(address?: string | null) {
+    if (!address) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(address).catch(() => {
+        setError('Unable to copy address.');
+      });
+    }
+  }
+
   async function refreshWorkers() {
     const workerList = await safeFetchJson('/api/client/workers', []);
     setWorkers(workerList);
@@ -513,6 +646,22 @@ export default function Dashboard() {
     () => plans.find((plan) => plan.id === billingInfo.planId) ?? plans[0] ?? null,
     [plans, billingInfo.planId]
   );
+
+  const planNameById = useMemo(() => {
+    return plans.reduce<Map<string, string>>((acc, plan) => {
+      acc.set(plan.id, plan.name);
+      return acc;
+    }, new Map());
+  }, [plans]);
+
+  const planOrderById = useMemo(() => {
+    return plans.reduce<Map<string, number>>((acc, plan, index) => {
+      acc.set(plan.id, index);
+      return acc;
+    }, new Map());
+  }, [plans]);
+
+  const unlockedStrategyIds = useMemo(() => new Set(currentPlan?.strategies ?? []), [currentPlan]);
 
   const trialCountdown = useMemo(() => formatTrialCountdown(billingInfo.trialEndsAt), [billingInfo.trialEndsAt]);
 
@@ -921,6 +1070,194 @@ export default function Dashboard() {
             ))}
           </div>
 
+          {strategies.length ? (
+            <Card style={{ display: 'grid', gap: '1.25rem' }}>
+              <div>
+                <Badge tone="primary">Strategy catalog</Badge>
+                <h2 style={{ margin: '0.75rem 0 0' }}>Bot lineup</h2>
+                <p style={{ color: '#94A3B8', margin: 0 }}>
+                  Your plan unlocks {unlockedStrategyIds.size} of {strategies.length} strategies.
+                </p>
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gap: '1rem',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                }}
+              >
+                {strategies.map((strategy) => {
+                  const allowedPlanIds = [...strategy.allowedPlans].sort((a, b) => {
+                    const left = planOrderById.get(a) ?? Number.MAX_SAFE_INTEGER;
+                    const right = planOrderById.get(b) ?? Number.MAX_SAFE_INTEGER;
+                    return left - right;
+                  });
+                  const allowedPlanNames = allowedPlanIds.map((planId) => planNameById.get(planId) ?? planId);
+                  const recommendedPlanId = allowedPlanIds[0];
+                  const recommendedPlanName = recommendedPlanId ? planNameById.get(recommendedPlanId) ?? recommendedPlanId : 'Pro';
+                  const unlocked = unlockedStrategyIds.has(strategy.id);
+                  const isRunnableStatus = strategy.status !== 'coming_soon';
+                  const canRunPaper = unlocked && isRunnableStatus && strategy.supportsPaper;
+                  const canRunLive =
+                    unlocked &&
+                    isRunnableStatus &&
+                    strategy.supportsLive &&
+                    Boolean(currentPlan?.limits.allowLiveTrading);
+                  const statusMeta = (() => {
+                    switch (strategy.status) {
+                      case 'active':
+                        return { tone: 'success' as const, label: 'Active' };
+                      case 'beta':
+                        return { tone: 'warning' as const, label: 'Beta' };
+                      default:
+                        return { tone: 'neutral' as const, label: 'Coming soon' };
+                    }
+                  })();
+                  return (
+                    <Card
+                      key={strategy.id}
+                      glass={false}
+                      elevation="none"
+                      style={{
+                        border: unlocked ? '1px solid rgba(34,197,94,0.35)' : '1px solid rgba(148,163,184,0.18)',
+                        background: unlocked ? 'rgba(21,128,61,0.12)' : 'rgba(15,23,42,0.55)',
+                        display: 'grid',
+                        gap: '0.75rem',
+                        padding: '1rem 1.15rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' }}>
+                        <div>
+                          <h3 style={{ margin: 0 }}>{strategy.name}</h3>
+                          <p style={{ margin: '0.35rem 0 0', color: '#cbd5f5' }}>{strategy.description}</p>
+                        </div>
+                        <div style={{ display: 'grid', gap: '0.35rem', textAlign: 'right' }}>
+                          <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
+                          <Badge tone={unlocked ? 'success' : 'neutral'}>{unlocked ? 'Included' : 'Locked'}</Badge>
+                        </div>
+                      </div>
+                      {strategy.ctaDescription ? (
+                        <p style={{ margin: 0, color: '#94A3B8' }}>{strategy.ctaDescription}</p>
+                      ) : null}
+                      <p style={{ margin: 0, color: '#64748B', fontSize: '0.9rem' }}>
+                        Default pair: {strategy.defaultPair}
+                      </p>
+                      <p style={{ margin: 0, color: '#64748B', fontSize: '0.9rem' }}>
+                        Available on: {allowedPlanNames.join(', ')}
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        {canRunPaper ? (
+                          <Button variant="secondary" onClick={() => handleStrategyRun(strategy, 'paper')}>
+                            Start paper
+                          </Button>
+                        ) : null}
+                        {canRunLive ? (
+                          <Button
+                            variant="primary"
+                            onClick={() => handleStrategyRun(strategy, 'live')}
+                            disabled={billingInfo.autoPaused}
+                          >
+                            Start live
+                          </Button>
+                        ) : null}
+                        {!unlocked ? (
+                          <Button
+                            variant="secondary"
+                            onClick={() => (recommendedPlanId ? handlePlanCheckout(recommendedPlanId) : undefined)}
+                            disabled={processingCheckout || !recommendedPlanId}
+                          >
+                            Unlock with {recommendedPlanName}
+                          </Button>
+                        ) : null}
+                        {unlocked && !isRunnableStatus ? (
+                          <span style={{ color: '#94A3B8', fontSize: '0.85rem' }}>
+                            Coming soon for included plans.
+                          </span>
+                        ) : null}
+                        {unlocked && isRunnableStatus && !canRunPaper && !canRunLive ? (
+                          <span style={{ color: '#94A3B8', fontSize: '0.85rem' }}>
+                            No runnable mode available in this plan.
+                          </span>
+                        ) : null}
+                      </div>
+                      {strategy.requirements && strategy.requirements.length ? (
+                        <p style={{ color: '#64748B', margin: 0, fontSize: '0.85rem' }}>
+                          Requirements: {strategy.requirements.map((req) => req.message || req.keys.join(', ')).join(' · ')}
+                        </p>
+                      ) : null}
+                      {strategy.id === 'mev' ? (
+                        <div
+                          style={{
+                            display: 'grid',
+                            gap: '0.75rem',
+                            padding: '0.85rem 1rem',
+                            borderRadius: 14,
+                            background: 'rgba(8,13,25,0.75)',
+                            border: '1px solid rgba(59,130,246,0.25)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
+                            <div>
+                              <p style={{ margin: 0, fontWeight: 600 }}>Funding address</p>
+                              <p style={{ margin: '0.3rem 0 0', color: '#94A3B8', fontSize: '0.8rem' }}>
+                                Deposit ETH to this wallet to cover Flashbots bundles.
+                              </p>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              {mevWallet?.address ? (
+                                <Button variant="ghost" onClick={() => handleCopyMevAddress(mevWallet.address)}>
+                                  Copy
+                                </Button>
+                              ) : null}
+                              <Button variant="secondary" onClick={handleSetMevKey}>
+                                {mevWallet?.hasSecret ? 'Rotate key' : 'Add key'}
+                              </Button>
+                              {mevWallet?.hasSecret ? (
+                                <Button variant="ghost" onClick={handleDeleteMevKey}>
+                                  Remove
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gap: '0.35rem' }}>
+                            <p style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                              {mevWallet?.address ?? 'No key on file'}
+                            </p>
+                            {mevWallet?.balanceEth ? (
+                              <p style={{ margin: 0, color: '#38BDF8', fontSize: '0.85rem' }}>
+                                Balance: {Number(mevWallet.balanceEth).toFixed(6)} ETH
+                              </p>
+                            ) : null}
+                            {mevWallet?.balanceEth && Number(mevWallet.balanceEth) < 0.02 ? (
+                              <p style={{ margin: 0, color: '#F59E0B', fontSize: '0.8rem' }}>
+                                Low balance — top up before running live.
+                              </p>
+                            ) : null}
+                            {mevWallet?.balanceError ? (
+                              <p style={{ margin: 0, color: '#F87171', fontSize: '0.8rem' }}>
+                                Balance check failed: {mevWallet.balanceError}
+                              </p>
+                            ) : null}
+                            {mevWallet?.updatedAt ? (
+                              <p style={{ margin: 0, color: '#94A3B8', fontSize: '0.75rem' }}>
+                                Updated {new Date(mevWallet.updatedAt).toLocaleString()}
+                              </p>
+                            ) : null}
+                            {!mevWallet?.hasSecret ? (
+                              <p style={{ margin: 0, color: '#94A3B8', fontSize: '0.85rem' }}>
+                                Add a dedicated Flashbots private key to enable MEV runs. We never share it outside your runner.
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+                    </Card>
+                  );
+                })}
+              </div>
+            </Card>
+          ) : null}
+
           <div
             style={{
               display: 'grid',
@@ -966,6 +1303,9 @@ export default function Dashboard() {
                           <li key={feature}>{feature}</li>
                         ))}
                       </ul>
+                      <p style={{ margin: 0, color: '#64748B', fontSize: '0.9rem' }}>
+                        Strategies: {plan.strategies.join(', ')}
+                      </p>
                       <Button
                         variant={isCurrent ? 'secondary' : 'primary'}
                         onClick={() => (isCurrent ? handleManageBilling() : handlePlanCheckout(plan.id))}

@@ -5,15 +5,19 @@ import { clientTaskConnection, getClientQueueName } from '../jobs/clientTaskQueu
 import { ClientTaskPayload } from '../jobs/clientTaskQueue';
 import { getPool } from '../db/pool';
 import { runMigrations } from '../db/migrations';
-import { ClientsRepository } from '../db/clientsRepo';
+import { ClientsRepository, ClientStrategySecretsRepository } from '../db/clientsRepo';
 import { ClientWorkersRepository, WorkerStatus } from '../db/clientWorkersRepo';
 import { logger, setLogContext } from '../utils/logger';
-import { runGridOnce } from '../strategies/gridBot';
+import { getPlanById } from '../config/plans';
+import { runStrategy, getStrategyDefinition, ensureStrategySupportsRunMode, checkStrategyRequirements } from '../strategies';
+import type { StrategyId, StrategyRunMode } from '../strategies';
+import type { PlanId } from '../config/planTypes';
 import {
   clientQueueDepthGauge,
   clientWorkerFailureCounter,
   clientWorkerStatusGauge,
 } from '../telemetry/metrics';
+import { decryptSecret, initSecretManager } from '../secrets/secretManager';
 
 const HEARTBEAT_INTERVAL_MS = ms('15s');
 
@@ -46,6 +50,7 @@ async function main() {
   const pool = getPool();
   await runMigrations(pool);
   const clientsRepo = new ClientsRepository(pool);
+  const strategySecretsRepo = new ClientStrategySecretsRepository(pool);
   const workersRepo = new ClientWorkersRepository(pool);
 
   await workersRepo.upsert({
@@ -127,17 +132,91 @@ async function main() {
         return;
       }
 
+      const planId = ((client as any).plan ?? 'starter') as PlanId;
+
       switch (job.name) {
+        case 'run_strategy':
         case 'run_grid': {
-          const pair = (job.data?.data?.pair as string) || 'BTC/USDT';
-          const runMode = (job.data?.data?.runMode as 'summary' | 'paper' | 'live') || 'paper';
-          logger.info('client_run_start', { event: 'client_run_start', clientId, workerId, pair, runMode, jobId: job.id });
-          await runGridOnce(pair, undefined, undefined, {
+          const payload = job.data?.data ?? {};
+          const requestedStrategy = (job.name === 'run_grid'
+            ? 'grid'
+            : (payload.strategyId as StrategyId) ?? 'grid') as StrategyId;
+          const strategy = getStrategyDefinition(requestedStrategy);
+          if (!strategy) {
+            logger.warn('unknown_strategy_job', {
+              event: 'unknown_strategy_job',
+              clientId,
+              workerId,
+              strategyId: requestedStrategy,
+              jobId: job.id,
+            });
+            break;
+          }
+          if (!strategy.allowedPlans.includes(planId)) {
+            logger.warn('strategy_not_allowed_for_plan', {
+              event: 'strategy_not_allowed_for_plan',
+              clientId,
+              workerId,
+              strategyId: requestedStrategy,
+              planId,
+              jobId: job.id,
+            });
+            break;
+          }
+          const runMode = (payload.runMode as StrategyRunMode) ?? (strategy.supportsPaper ? 'paper' : 'live');
+          if (!ensureStrategySupportsRunMode(strategy, runMode)) {
+            break;
+          }
+          let strategyConfig = (payload.config as Record<string, unknown> | undefined) ?? undefined;
+          if (strategy.id === 'mev') {
+            const secretRow = await strategySecretsRepo.get(clientId, strategy.id);
+            if (!secretRow) {
+              logger.warn('strategy_secret_missing', {
+                event: 'strategy_secret_missing',
+                clientId,
+                workerId,
+                strategyId: requestedStrategy,
+                jobId: job.id,
+              });
+              break;
+            }
+            await initSecretManager();
+            const privateKey = decryptSecret(secretRow.secretEnc);
+            strategyConfig = { ...(strategyConfig ?? {}), privateKey };
+          }
+          if (!checkStrategyRequirements(strategy, { config: strategyConfig })) {
+            break;
+          }
+          const pair = (payload.pair as string) || strategy.defaultPair;
+          const actor = payload.actor as string | undefined;
+
+          logger.info('client_strategy_run_start', {
+            event: 'client_strategy_run_start',
             clientId,
+            workerId,
+            strategyId: requestedStrategy,
+            planId,
+            pair,
             runMode,
-            actor: job.data?.data?.actor as string | undefined,
+            jobId: job.id,
           });
-          logger.info('client_run_complete', { event: 'client_run_complete', clientId, workerId, pair, jobId: job.id });
+          await runStrategy(requestedStrategy, {
+            clientId,
+            planId,
+            pair,
+            runMode,
+            actor,
+            config: strategyConfig,
+          });
+          logger.info('client_strategy_run_complete', {
+            event: 'client_strategy_run_complete',
+            clientId,
+            workerId,
+            strategyId: requestedStrategy,
+            planId,
+            pair,
+            jobId: job.id,
+          });
           break;
         }
         case 'pause': {

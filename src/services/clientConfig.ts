@@ -5,6 +5,9 @@ import {
   ClientApiCredentialsRepository,
   ClientRow,
   ClientsRepository,
+  ClientStrategySecretRow,
+  ClientStrategySecretUpsert,
+  ClientStrategySecretsRepository,
 } from '../db/clientsRepo';
 import { decryptSecret, encryptSecret, initSecretManager } from '../secrets/secretManager';
 
@@ -193,12 +196,14 @@ function deriveOperationalLimits(limits: ClientLimits, risk: RiskConfig): Operat
 export class ClientConfigService {
   private readonly clientsRepo: ClientsRepository;
   private readonly credentialsRepo: ClientApiCredentialsRepository;
+  private readonly strategySecretsRepo: ClientStrategySecretsRepository;
   private readonly allowedClientId?: string;
   private readonly defaultExchange: string;
 
   constructor(private readonly pool: Pool, opts: ClientConfigServiceOptions = {}) {
     this.clientsRepo = new ClientsRepository(pool);
     this.credentialsRepo = new ClientApiCredentialsRepository(pool);
+    this.strategySecretsRepo = new ClientStrategySecretsRepository(pool);
     this.allowedClientId = opts.allowedClientId;
     this.defaultExchange = opts.defaultExchange ?? CONFIG.DEFAULT_EXCHANGE;
   }
@@ -297,5 +302,40 @@ export class ClientConfigService {
       apiSecretEnc,
       passphraseEnc,
     });
+  }
+
+  async storeStrategySecret(input: {
+    clientId: string;
+    strategyId: string;
+    secret: string;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<ClientStrategySecretRow> {
+    this.ensureAllowed(input.clientId);
+    await initSecretManager();
+    const secretEnc = encryptSecret(input.secret);
+    const upsertPayload: ClientStrategySecretUpsert = {
+      clientId: input.clientId,
+      strategyId: input.strategyId,
+      secretEnc,
+      metadata: input.metadata ?? null,
+    };
+    return this.strategySecretsRepo.upsert(upsertPayload);
+  }
+
+  async getStrategySecret(clientId: string, strategyId: string): Promise<{
+    row: ClientStrategySecretRow;
+    secret: string;
+  } | null> {
+    this.ensureAllowed(clientId);
+    const row = await this.strategySecretsRepo.get(clientId, strategyId);
+    if (!row) return null;
+    await initSecretManager();
+    const secret = decryptSecret(row.secretEnc);
+    return { row, secret };
+  }
+
+  async deleteStrategySecret(clientId: string, strategyId: string) {
+    this.ensureAllowed(clientId);
+    await this.strategySecretsRepo.delete(clientId, strategyId);
   }
 }

@@ -5,7 +5,11 @@ import path from 'path';
 import { CONFIG as APP_CONFIG } from '../config';
 import { getPool, closePool } from '../db/pool';
 import { runMigrations } from '../db/migrations';
-import { ClientsRepository, ClientApiCredentialsRepository } from '../db/clientsRepo';
+import {
+  ClientsRepository,
+  ClientApiCredentialsRepository,
+  ClientStrategySecretsRepository,
+} from '../db/clientsRepo';
 import { ClientConfigService } from '../services/clientConfig';
 import { initSecretManager } from '../secrets/secretManager';
 import { ClientAuditLogRepository } from '../db/auditLogRepo';
@@ -15,9 +19,13 @@ import {
   fetchClientSnapshot,
   fetchClients,
   listClientCredentials,
+  fetchStrategySecretSummary,
+  storeStrategySecretRecord,
   storeClientCredentials,
   upsertClientRecord,
+  deleteStrategySecretRecord,
 } from './clientAdminActions';
+import { ethers } from 'ethers';
 import { enqueuePaperRun, isPaperRunQueueEnabled } from '../jobs/paperRunQueue';
 import { enqueueClientTask, isClientTaskQueueEnabled } from '../jobs/clientTaskQueue';
 import { ClientWorkersRepository } from '../db/clientWorkersRepo';
@@ -30,6 +38,9 @@ import {
 } from '../services/billing/stripeService';
 import { logger } from '../utils/logger';
 import { ClientAgreementsRepository } from '../db/clientAgreementsRepo';
+import { listStrategies, getStrategyDefinition, ensureStrategySupportsRunMode, checkStrategyRequirements } from '../strategies/registry';
+import type { StrategyId, StrategyRunMode } from '../strategies/types';
+import type { PlanId } from '../config/planTypes';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -143,6 +154,7 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
   await runMigrations(pool);
   const clientsRepo = new ClientsRepository(pool);
   const credsRepo = new ClientApiCredentialsRepository(pool);
+  const strategySecretsRepo = new ClientStrategySecretsRepository(pool);
   const configService = new ClientConfigService(pool);
   const auditRepo = new ClientAuditLogRepository(pool);
   const workersRepo = new ClientWorkersRepository(pool);
@@ -153,6 +165,18 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
     { documentType: 'privacy', name: 'Privacy Policy', version: APP_CONFIG.LEGAL.PRIVACY_VERSION, file: 'privacy' },
     { documentType: 'risk', name: 'Risk Disclosure', version: APP_CONFIG.LEGAL.RISK_VERSION, file: 'risk' },
   ];
+
+  const resolveMevRpcUrl = () => {
+    return (
+      process.env.MEV_RPC_URL ||
+      process.env.MEV_ALCHEMY_HTTPS ||
+      (process.env.MEV_ALCHEMY_KEY ? `https://eth-mainnet.g.alchemy.com/v2/${process.env.MEV_ALCHEMY_KEY}` : undefined) ||
+      process.env.ALCHEMY_HTTPS ||
+      (process.env.ALCHEMY_KEY ? `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_KEY}` : undefined) ||
+      process.env.RPC_URL ||
+      null
+    );
+  };
 
   async function readLegalDocument(slug: string) {
     const candidates = [
@@ -209,6 +233,12 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
 
       if (ctx.pathname === '/plans' && ctx.method === 'GET') {
         sendJson(res, 200, PLAN_DEFINITIONS);
+        return;
+      }
+
+      if (ctx.pathname === '/strategies' && ctx.method === 'GET') {
+        const strategies = listStrategies();
+        sendJson(res, 200, strategies);
         return;
       }
 
@@ -653,6 +683,89 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
         return;
       }
 
+      const strategySecretMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/strategies\/([^/]+)\/secret$/);
+      if (strategySecretMatch) {
+        const clientId = decodeURIComponent(strategySecretMatch[1]);
+        const strategyId = decodeURIComponent(strategySecretMatch[2]);
+        if (ctx.method === 'GET') {
+          const summary = await fetchStrategySecretSummary(strategySecretsRepo, clientId, strategyId);
+          if (!summary.hasSecret) {
+            sendJson(res, 200, { hasSecret: false });
+            return;
+          }
+          const rpcUrl = resolveMevRpcUrl();
+          let balanceWei: string | null = null;
+          let balanceEth: string | null = null;
+          let balanceError: string | null = null;
+          if (summary.address && rpcUrl) {
+            try {
+              const provider = new ethers.JsonRpcProvider(rpcUrl);
+              const bal = await provider.getBalance(summary.address);
+              balanceWei = bal.toString();
+              balanceEth = ethers.formatEther(bal);
+            } catch (err) {
+              balanceError = err instanceof Error ? err.message : String(err);
+            }
+          }
+          sendJson(res, 200, {
+            hasSecret: true,
+            address: summary.address ?? null,
+            updatedAt: summary.updatedAt ?? null,
+            balanceWei,
+            balanceEth,
+            balanceError,
+          });
+          return;
+        }
+        if (ctx.method === 'POST') {
+          const body = ctx.body ?? {};
+          const privateKey = typeof body.privateKey === 'string' ? body.privateKey.trim() : '';
+          if (!privateKey) {
+            throw new Error('private_key_required');
+          }
+          let wallet: ethers.Wallet;
+          try {
+            wallet = new ethers.Wallet(privateKey);
+          } catch (err) {
+            throw new Error('invalid_private_key');
+          }
+          const stored = await storeStrategySecretRecord(configService, {
+            clientId,
+            strategyId,
+            secret: privateKey,
+            metadata: { address: wallet.address },
+          });
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'strategy_secret_rotated',
+            metadata: {
+              strategyId,
+              address: wallet.address,
+            },
+          });
+          sendJson(res, 201, {
+            hasSecret: true,
+            address: stored.address ?? wallet.address,
+            updatedAt: stored.updatedAt ?? new Date(),
+          });
+          return;
+        }
+        if (ctx.method === 'DELETE') {
+          await deleteStrategySecretRecord(configService, clientId, strategyId);
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'strategy_secret_deleted',
+            metadata: { strategyId },
+          });
+          sendJson(res, 204, {});
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
       const auditMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/audit$/);
       if (auditMatch) {
         const clientId = decodeURIComponent(auditMatch[1]);
@@ -775,20 +888,49 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
             throw new Error('client_task_queue_disabled');
           }
           const body = ctx.body ?? {};
+          const client = await clientsRepo.findById(clientId);
+          if (!client) {
+            throw new Error('client_not_found');
+          }
+          const planId = (client.plan ?? 'starter') as PlanId;
+          const requestedStrategy = (body.strategyId ?? body.strategy_id ?? 'grid') as StrategyId;
+          const strategy = getStrategyDefinition(requestedStrategy);
+          if (!strategy) {
+            throw new Error(`unknown_strategy:${requestedStrategy}`);
+          }
+          if (!strategy.allowedPlans.includes(planId)) {
+            throw new Error(`strategy_not_permitted:${requestedStrategy}`);
+          }
+          const runMode = (body.runMode ?? body.run_mode ?? (strategy.supportsPaper ? 'paper' : 'live')) as StrategyRunMode;
+          if (!ensureStrategySupportsRunMode(strategy, runMode)) {
+            throw new Error(`strategy_run_mode_not_supported:${requestedStrategy}:${runMode}`);
+          }
+          const strategyConfig = (body.config ?? body.strategyConfig ?? undefined) as Record<string, unknown> | undefined;
+          if (!checkStrategyRequirements(strategy, { config: strategyConfig })) {
+            throw new Error('strategy_requirements_missing');
+          }
+          const actor = resolveActor(ctx.req);
+          const pair = typeof body.pair === 'string' && body.pair ? body.pair : strategy.defaultPair;
           await enqueueClientTask({
-            type: 'run_grid',
+            type: 'run_strategy',
             clientId,
             data: {
-              pair: body.pair,
-              runMode: body.runMode,
-              actor: resolveActor(ctx.req),
+              strategyId: requestedStrategy,
+              pair,
+              runMode,
+              actor,
+              config: strategyConfig,
             },
           });
           await auditRepo.addEntry({
             clientId,
-            actor: resolveActor(ctx.req),
+            actor,
             action: 'client_run_requested',
-            metadata: body ?? null,
+            metadata: {
+              strategyId: requestedStrategy,
+              pair,
+              runMode,
+            },
           });
           sendJson(res, 202, { status: 'queued' });
           return;

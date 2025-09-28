@@ -1,8 +1,10 @@
 import {
   ClientsRepository,
   ClientApiCredentialsRepository,
+  ClientStrategySecretsRepository,
   ClientRow,
   ClientApiCredentialRow,
+  ClientStrategySecretRow,
   ClientUpsertInput,
 } from '../db/clientsRepo';
 import { ClientConfigService } from '../services/clientConfig';
@@ -86,4 +88,57 @@ export async function deleteClientCredentials(
   exchangeName: string
 ) {
   await credsRepo.delete(clientId, exchangeName);
+}
+
+export interface StrategySecretSummary {
+  clientId: string;
+  strategyId: string;
+  hasSecret: boolean;
+  address?: string;
+  updatedAt?: Date;
+}
+
+export function mapStrategySecret(row: ClientStrategySecretRow | null): StrategySecretSummary {
+  if (!row) {
+    return { clientId: '', strategyId: '', hasSecret: false };
+  }
+  const metadata = row.metadata ?? {};
+  const address = typeof metadata.address === 'string' ? metadata.address : undefined;
+  return {
+    clientId: row.clientId,
+    strategyId: row.strategyId,
+    hasSecret: true,
+    address,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export async function fetchStrategySecretSummary(
+  secretsRepo: ClientStrategySecretsRepository,
+  clientId: string,
+  strategyId: string
+): Promise<StrategySecretSummary> {
+  const row = await secretsRepo.get(clientId, strategyId);
+  if (!row) {
+    return { clientId, strategyId, hasSecret: false };
+  }
+  const base = mapStrategySecret(row);
+  return { ...base, clientId, strategyId };
+}
+
+export async function storeStrategySecretRecord(
+  configService: ClientConfigService,
+  input: { clientId: string; strategyId: string; secret: string; metadata?: Record<string, unknown> | null }
+): Promise<StrategySecretSummary> {
+  const row = await configService.storeStrategySecret(input);
+  const summary = mapStrategySecret(row);
+  return { ...summary, clientId: row.clientId, strategyId: row.strategyId };
+}
+
+export async function deleteStrategySecretRecord(
+  configService: ClientConfigService,
+  clientId: string,
+  strategyId: string
+) {
+  await configService.deleteStrategySecret(clientId, strategyId);
 }

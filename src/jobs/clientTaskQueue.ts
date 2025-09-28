@@ -1,10 +1,17 @@
 import { Queue, QueueScheduler } from 'bullmq';
 import { URL } from 'url';
+import type { StrategyId, StrategyRunMode } from '../strategies/types';
 
 export type ClientTaskPayload = {
-  type: 'run_grid' | 'pause' | 'resume' | 'shutdown';
+  type: 'run_strategy' | 'run_grid' | 'pause' | 'resume' | 'shutdown';
   clientId: string;
-  data?: Record<string, unknown>;
+  data?: {
+    strategyId?: StrategyId;
+    pair?: string;
+    runMode?: StrategyRunMode;
+    actor?: string;
+    config?: Record<string, unknown>;
+  };
 };
 
 function getConnection() {
