@@ -1,6 +1,7 @@
 import Head from 'next/head';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useState } from 'react';
 import { HeroVisualization } from '../components/landing/HeroVisualization';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -56,6 +57,7 @@ const strategiesShowcase = [
 ];
 
 export default function LandingPage() {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const fakeSeries = Array.from({ length: 90 }, (_, i) => Math.sin(i / 6) * 12 + i * 0.4 + 60);
   return (
     <>
@@ -77,42 +79,48 @@ export default function LandingPage() {
             borderBottom: '1px solid rgba(148,163,184,0.12)',
           }}
         >
-          <div
-            className="container"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '1.25rem 0',
-              gap: '1.5rem',
-            }}
-          >
+          <div className="container landing-nav">
             <Link href="/" legacyBehavior>
-              <a style={{ display: 'inline-flex', alignItems: 'center', gap: '0.65rem', color: '#E2E8F0', fontWeight: 700 }}>
+              <a className="landing-nav__brand">
                 <Image src="/octobot-logo.svg" alt="OctoBot logo" width={38} height={38} />
-                OctoBot
+                <span>OctoBot</span>
               </a>
             </Link>
-            <nav style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+
+            <nav className={`landing-nav__links ${mobileNavOpen ? 'landing-nav__links--open' : ''}`}>
               <Link href="/#why" legacyBehavior>
-                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>Why OctoBot</a>
+                <a onClick={() => setMobileNavOpen(false)}>Why OctoBot</a>
               </Link>
               <Link href="/#strategies" legacyBehavior>
-                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>Strategies</a>
+                <a onClick={() => setMobileNavOpen(false)}>Strategies</a>
               </Link>
               <Link href="/#pricing" legacyBehavior>
-                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>Pricing</a>
+                <a onClick={() => setMobileNavOpen(false)}>Pricing</a>
               </Link>
               <Link href="/#faq" legacyBehavior>
-                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>FAQ</a>
+                <a onClick={() => setMobileNavOpen(false)}>FAQ</a>
               </Link>
               <Link href="/app" legacyBehavior>
-                <a>
+                <a className="landing-nav__sign-in" onClick={() => setMobileNavOpen(false)}>
                   <Button variant="secondary">Sign in</Button>
                 </a>
               </Link>
             </nav>
+
+            <button
+              type="button"
+              className="landing-nav__toggle"
+              onClick={() => setMobileNavOpen((prev) => !prev)}
+              aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+              aria-expanded={mobileNavOpen}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
           </div>
+
+          {mobileNavOpen ? <div className="landing-nav__overlay" onClick={() => setMobileNavOpen(false)} /> : null}
         </header>
 
         <main>
