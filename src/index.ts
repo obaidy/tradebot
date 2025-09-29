@@ -49,7 +49,7 @@ async function main() {
   console.log('Using params:', params, 'USE_GUARD=', useGuard);
 
   try {
-    const shouldAutoRun = (process.env.AUTO_RUN ?? 'true').toLowerCase() === 'true';
+    const shouldAutoRun = (process.env.AUTO_RUN ?? 'false').toLowerCase() === 'true';
     if (!shouldAutoRun) {
       console.log('AUTO_RUN disabled — services started, skipping grid execution.');
       return;
