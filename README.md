@@ -17,6 +17,14 @@ This starter repo contains a minimal CEX grid bot + backtest script. It's **pape
 3. Run in dev: `npm run dev`
 4. Backtest data fetch: `npm run backtest` (saves candles.json)
 
+### Render deployment
+
+- The repo now includes `render.yaml` so Render can provision the portal as a Node web service rather than a static site.
+- Build command: `npm install && npm run build --workspace portal`
+- Start command: `npm run start --workspace portal`
+- Set `NEXTAUTH_URL`, `NEXTAUTH_SECRET`, `ADMIN_API_URL`, `ADMIN_API_TOKEN`, Stripe keys, and the S3 export variables on the Render dashboard before deploying.
+- If you previously created a static-site service, redeploy using the blueprint or switch the service type to **Web Service → Node**; the static target cannot host Next.js API routes or Auth flows.
+
 **DO NOT** run live without setting PAPER_MODE=false and verifying risk parameters, API keys, and small capital allocation.
 
 ---
