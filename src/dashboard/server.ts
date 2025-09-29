@@ -102,11 +102,15 @@ async function fetchDashboardData(pool: Pool, clientId: string) {
 
 export function startDashboardServer(
   pool: Pool,
-  port = Number(process.env.DASHBOARD_PORT || 9102),
+  port?: number,
   clientId = process.env.DASHBOARD_CLIENT_ID || CONFIG.RUN.CLIENT_ID || 'default'
 ) {
   if (serverStarted) return;
   serverStarted = true;
+  const envPortRaw = process.env.DASHBOARD_PORT || process.env.PORT;
+  const envPort = envPortRaw ? Number(envPortRaw) : NaN;
+  const requestedPort = typeof port === 'number' ? port : envPort;
+  const listenPort = Number.isFinite(requestedPort) && requestedPort! > 0 && requestedPort! < 65536 ? requestedPort! : 9102;
   const server = http.createServer(async (req, res) => {
     try {
       if (req.url === '/' && req.method === 'GET') {
@@ -135,8 +139,8 @@ export function startDashboardServer(
     }
   });
 
-  server.listen(port, () => {
+  server.listen(listenPort, () => {
     // eslint-disable-next-line no-console
-    console.log(`Dashboard available at http://localhost:${port}`);
+    console.log(`Dashboard available at http://0.0.0.0:${listenPort}`);
   });
 }
