@@ -304,15 +304,17 @@ export default function Dashboard() {
         setAuditEntries(auditRes);
         setMetrics(metricsRes);
         setWorkers(workersRes);
-        setRunHistory(historyRes?.runs ?? []);
-        setGuardSnapshot(historyRes?.guard ?? null);
-        setInventoryHistory(historyRes?.inventory ?? []);
-        setAgreements(agreementsRes?.agreements ?? []);
-        setAgreementRequirements(agreementsRes?.requirements ?? []);
+        const historyData = historyRes as { runs?: any[]; guard?: any; inventory?: any[] } | null;
+        const agreementsData = agreementsRes as { agreements?: any[]; requirements?: any[] } | null;
+        setRunHistory(historyData?.runs ?? []);
+        setGuardSnapshot(historyData?.guard ?? null);
+        setInventoryHistory(historyData?.inventory ?? []);
+        setAgreements(agreementsData?.agreements ?? []);
+        setAgreementRequirements(agreementsData?.requirements ?? []);
         setAckChecklist((prev) => {
           const next = { ...prev };
           const accepted = new Set(
-            (agreementsRes?.requirements ?? [])
+            (agreementsData?.requirements ?? [])
               .filter((req: any) => req.accepted)
               .map((req: any) => req.documentType)
           );

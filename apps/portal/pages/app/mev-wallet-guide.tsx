@@ -80,7 +80,7 @@ export default function MevWalletGuide() {
           <Card elevation="none" style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)', display: 'grid', gap: '0.75rem' }}>
             <h2 style={{ margin: 0 }}>Ready to run?</h2>
             <p style={{ margin: 0, color: '#94A3B8' }}>
-              When the balance card in your dashboard shows sufficient ETH, queue a live MEV run from the "Start live" button. Keep an eye on the balance alert for top-ups.
+              When the balance card in your dashboard shows sufficient ETH, queue a live MEV run from the ‘Start live’ button. Keep an eye on the balance alert for top-ups.
             </p>
             <div>
               <Link href="/app" legacyBehavior>

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../../lib/authOptions';
-import { fetchMetrics } from '../../../../lib/adminClient';
+import { authOptions } from '@/lib/authOptions';
+import { fetchMetrics } from '@/lib/adminClient';
 
 export const config = {
   api: {
@@ -19,6 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
+  const clientId = session.user.id as string;
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -29,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const send = async () => {
     try {
-      const metrics = await fetchMetrics(session.user!.id);
+      const metrics = await fetchMetrics(clientId);
       res.write(`data: ${JSON.stringify({ ...metrics, timestamp: Date.now() })}\n\n`);
     } catch (err) {
       res.write(`event: error\ndata: ${JSON.stringify({ error: err instanceof Error ? err.message : 'metrics_failed' })}\n\n`);
