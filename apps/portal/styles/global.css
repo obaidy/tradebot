@@ -334,48 +334,288 @@ section {
   }
 }
 
-.octobot-loader {
+.octobot-chat {
   position: fixed;
   bottom: 2.5rem;
   right: 2.5rem;
-  width: 80px;
-  height: 80px;
-  pointer-events: none;
-  opacity: 0.92;
-  filter: drop-shadow(0 18px 28px rgba(14, 165, 233, 0.45));
-  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1.25rem;
+  z-index: 40;
 }
 
-.octobot-loader svg {
-  width: 100%;
-  height: 100%;
+.octobot-chat__panel {
+  width: min(320px, calc(100vw - 2.5rem));
+  background: rgba(9, 20, 38, 0.96);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 20px;
+  box-shadow: 0 30px 70px rgba(8, 13, 25, 0.65);
+  backdrop-filter: blur(18px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  animation: octobot-panel-in 0.25s ease;
 }
 
-.octobot-loader__body {
-  animation: octobot-float 6s ease-in-out infinite;
-  transform-origin: center 65%;
+.octobot-chat__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.1rem 0.6rem 1.1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
 }
 
-.octobot-loader__eye {
+.octobot-chat__heading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.octobot-chat__title {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.octobot-chat__subtitle {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #94A3B8;
+}
+
+.octobot-chat__close {
+  border: none;
+  background: rgba(15, 23, 42, 0.6);
+  color: #E2E8F0;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.octobot-chat__close:hover {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38BDF8;
+}
+
+.octobot-chat__messages {
+  padding: 0 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 0.35rem;
+}
+
+.octobot-chat__bubble {
+  border-radius: 16px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  padding: 0.75rem 0.95rem;
+  max-width: 100%;
+  word-break: break-word;
+  box-shadow: 0 12px 28px rgba(8, 13, 25, 0.35);
+}
+
+.octobot-chat__bubble--bot {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.octobot-chat__bubble--user {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.35), rgba(139, 92, 246, 0.35));
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  align-self: flex-end;
+}
+
+.octobot-chat__bubble--typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.octobot-chat__bubble--typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.8);
+  animation: octobot-typing 1s infinite ease-in-out;
+}
+
+.octobot-chat__bubble--typing span:nth-of-type(2) {
+  animation-delay: 0.2s;
+}
+
+.octobot-chat__bubble--typing span:nth-of-type(3) {
+  animation-delay: 0.4s;
+}
+
+.octobot-chat__quick-replies {
+  padding: 0 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.octobot-chat__chip {
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(15, 23, 42, 0.7);
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #E2E8F0;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.octobot-chat__chip:hover {
+  border-color: rgba(56, 189, 248, 0.65);
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.octobot-chat__composer {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0 1.1rem 1rem 1.1rem;
+}
+
+.octobot-chat__composer input {
+  flex: 1;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(8, 13, 25, 0.85);
+  color: #E2E8F0;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.95rem;
+}
+
+.octobot-chat__composer input:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.35);
+  outline-offset: 2px;
+}
+
+.octobot-chat__composer button {
+  border-radius: 10px;
+  border: none;
+  padding: 0.65rem 0.95rem;
+  background: linear-gradient(125deg, #38BDF8, #6366F1);
+  color: #0B1120;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.octobot-chat__composer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.octobot-chat__composer button:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(99, 102, 241, 0.35);
+}
+
+.octobot-chat__footer {
+  padding: 0 1.1rem 1.1rem;
+  font-size: 0.75rem;
+  color: rgba(203, 213, 225, 0.8);
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.octobot-chat__footer a {
+  color: #38BDF8;
+}
+
+.octobot-chat__inline-code {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  margin: 0 0.15rem;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #E2E8F0;
+}
+
+.octobot-chat__launcher {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: radial-gradient(circle at 30% 20%, rgba(56, 189, 248, 0.45), rgba(14, 165, 233, 0.25)), rgba(9, 20, 38, 0.9);
+  box-shadow: 0 22px 45px rgba(14, 165, 233, 0.35);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.octobot-chat__launcher:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 26px 50px rgba(14, 165, 233, 0.45);
+}
+
+.octobot-chat__launcher:focus-visible {
+  outline: 3px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 4px;
+}
+
+.octobot-glyph {
+  width: 54px;
+  height: 54px;
+}
+
+.octobot-glyph--animate .octobot-glyph__body {
+  animation: octobot-float 5.5s ease-in-out infinite;
+  transform-origin: center 60%;
+}
+
+.octobot-glyph--animate .octobot-glyph__glow path {
+  animation: octobot-wave 3.5s ease-in-out infinite;
+  transform-origin: center 85%;
+}
+
+.octobot-glyph__eye {
   animation: octobot-blink 9s linear infinite;
   transform-origin: center;
 }
 
-.octobot-loader__tentacle {
-  animation: octobot-wave 3.6s ease-in-out infinite;
-  transform-origin: center 90%;
+.octobot-chat__panel a:hover {
+  text-decoration: underline;
 }
 
-.octobot-loader__tentacle:nth-of-type(2) {
-  animation-delay: 0.45s;
+.octobot-chat--open .octobot-chat__launcher {
+  transform: translateY(0) scale(0.92);
+  background: rgba(8, 13, 25, 0.95);
+  box-shadow: 0 18px 35px rgba(8, 13, 25, 0.55);
 }
 
-.octobot-loader__tentacle:nth-of-type(3) {
-  animation-delay: 0.9s;
-}
-
-.octobot-loader__glow {
-  animation: octobot-glow 5s ease-in-out infinite;
+@keyframes octobot-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes octobot-float {
@@ -383,7 +623,7 @@ section {
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-6px);
+    transform: translateY(-4px);
   }
 }
 
@@ -392,16 +632,7 @@ section {
     transform: rotate(0deg);
   }
   50% {
-    transform: rotate(6deg);
-  }
-}
-
-@keyframes octobot-glow {
-  0%, 100% {
-    opacity: 0.25;
-  }
-  50% {
-    opacity: 0.6;
+    transform: rotate(5deg);
   }
 }
 
@@ -414,8 +645,42 @@ section {
   }
 }
 
-@media (max-width: 900px) {
-  .octobot-loader {
-    display: none;
+@keyframes octobot-typing {
+  0%, 100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (max-width: 768px) {
+  .octobot-chat {
+    right: 1.15rem;
+    bottom: 1.5rem;
+  }
+  .octobot-chat__panel {
+    width: min(360px, calc(100vw - 1.5rem));
+  }
+}
+
+@media (max-width: 520px) {
+  .octobot-chat {
+    right: 0.75rem;
+    bottom: 1.15rem;
+  }
+  .octobot-chat__panel {
+    width: calc(100vw - 1.5rem);
+    border-radius: 16px;
+  }
+  .octobot-chat__launcher {
+    width: 64px;
+    height: 64px;
+  }
+  .octobot-glyph {
+    width: 48px;
+    height: 48px;
   }
 }

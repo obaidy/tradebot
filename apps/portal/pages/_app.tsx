@@ -3,7 +3,7 @@ import type { AppProps } from 'next/app';
 import type { Session } from 'next-auth';
 import { SessionProvider } from 'next-auth/react';
 import '../styles/global.css';
-import { OctopusLoader } from '../components/ui/OctopusLoader';
+import { OctopusChatWidget } from '../components/ui/OctopusChatWidget';
 
 function App({ Component, pageProps: { session, ...pageProps } }: AppProps<{ session: Session | null }>) {
   return (
@@ -15,7 +15,7 @@ function App({ Component, pageProps: { session, ...pageProps } }: AppProps<{ ses
         <link rel="apple-touch-icon" href="/favicon.png" />
       </Head>
       <Component {...pageProps} />
-      <OctopusLoader />
+      <OctopusChatWidget />
     </SessionProvider>
   );
 }
