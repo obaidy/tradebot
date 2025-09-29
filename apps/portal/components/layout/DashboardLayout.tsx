@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { ReactNode, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
@@ -46,19 +47,22 @@ export function DashboardLayout({ children, topRightSlot }: DashboardLayoutProps
           gap: '2.5rem',
         }}
       >
-        <div>
-          <span
-            style={{
-              fontFamily: typography.fontFamily,
-              fontWeight: 700,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              fontSize: '0.85rem',
-              color: palette.primary,
-            }}
-          >
-            TradeBot
-          </span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <Image src="/octobot-logo.svg" alt="OctoBot" width={32} height={32} />
+            <span
+              style={{
+                fontFamily: typography.fontFamily,
+                fontWeight: 700,
+                letterSpacing: '0.18em',
+                textTransform: 'uppercase',
+                fontSize: '0.85rem',
+                color: palette.primary,
+              }}
+            >
+              OctoBot
+            </span>
+          </div>
           <h1 style={{ margin: '0.65rem 0 0', fontSize: '1.4rem', letterSpacing: '-0.01em' }}>Operator Console</h1>
         </div>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
@@ -94,7 +98,7 @@ export function DashboardLayout({ children, topRightSlot }: DashboardLayoutProps
         <div style={{ marginTop: 'auto', fontSize: '0.75rem', color: palette.textSecondary, lineHeight: 1.6 }}>
           <p style={{ margin: 0 }}>Release window: Tuesday 14:00 UTC</p>
           <p style={{ margin: 0 }}>Paper canary: auto-run on merge to main</p>
-          <p style={{ margin: 0 }}>On-call: operations@tradebot.ai</p>
+          <p style={{ margin: 0 }}>On-call: operations@octobot.ai</p>
         </div>
       </aside>
       {navOpen ? <div className="dashboard-overlay" onClick={() => setNavOpen(false)} /> : null}

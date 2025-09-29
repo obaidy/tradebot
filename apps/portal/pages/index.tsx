@@ -1,4 +1,5 @@
 import Head from 'next/head';
+import Image from 'next/image';
 import Link from 'next/link';
 import { HeroVisualization } from '../components/landing/HeroVisualization';
 import { Badge } from '../components/ui/Badge';
@@ -59,7 +60,7 @@ export default function LandingPage() {
   return (
     <>
       <Head>
-        <title>TradeBot · Automated Crypto Execution</title>
+        <title>OctoBot · Automated Crypto Execution</title>
         <meta
           name="description"
           content="Deploy adaptive grid strategies, run paper canaries, and promote live with auditable guard rails."
@@ -88,26 +89,13 @@ export default function LandingPage() {
           >
             <Link href="/" legacyBehavior>
               <a style={{ display: 'inline-flex', alignItems: 'center', gap: '0.65rem', color: '#E2E8F0', fontWeight: 700 }}>
-                <span
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, rgba(56,189,248,0.35), rgba(99,102,241,0.35))',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.1rem',
-                  }}
-                >
-                  TB
-                </span>
-                TradeBot
+                <Image src="/octobot-logo.svg" alt="OctoBot logo" width={38} height={38} />
+                OctoBot
               </a>
             </Link>
             <nav style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
               <Link href="/#why" legacyBehavior>
-                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>Why TradeBot</a>
+                <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>Why OctoBot</a>
               </Link>
               <Link href="/#strategies" legacyBehavior>
                 <a style={{ color: '#94A3B8', fontSize: '0.95rem' }}>Strategies</a>
@@ -139,7 +127,7 @@ export default function LandingPage() {
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2.4rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                  <Badge tone="primary">TradeBot Control Plane</Badge>
+                  <Badge tone="primary">OctoBot Control Plane</Badge>
                   <h1 className="section-heading gradient-text" style={{ margin: 0 }}>
                     {callouts.hero.headline}
                   </h1>
@@ -239,7 +227,7 @@ export default function LandingPage() {
           <Section spacing="5rem 0" id="why">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem', alignItems: 'center' }}>
               <div style={{ textAlign: 'center', maxWidth: '720px' }}>
-                <Badge tone="primary">Why TradeBot</Badge>
+                <Badge tone="primary">Why OctoBot</Badge>
                 <h2 className="section-heading" style={{ marginTop: '1rem' }}>
                   Automation without the blind spots
                 </h2>
@@ -324,7 +312,7 @@ export default function LandingPage() {
 
           <Section spacing="5rem 0" id="about" align="center">
             <div style={{ maxWidth: '820px', display: 'grid', gap: '1.5rem' }}>
-              <Badge tone="primary">About TradeBot</Badge>
+              <Badge tone="primary">About OctoBot</Badge>
               <h2 className="section-heading">Built by operators, for operators</h2>
               <p className="section-subheading" style={{ margin: '0 auto' }}>
                 We are an ops-obsessed team of ex-quant traders and SREs. Every feature ships after living in our own desks—telemetry, guard rails, billing, and release artefacts included.
@@ -364,7 +352,7 @@ export default function LandingPage() {
               <Badge tone="primary">What operators say</Badge>
               <h2 className="section-heading">Trusted by systematic trading desks</h2>
               <p className="section-subheading" style={{ margin: '0 auto' }}>
-                Power users lean on TradeBot to launch, monitor, and audit dozens of strategies without scaling engineering
+                Power users lean on OctoBot to launch, monitor, and audit dozens of strategies without scaling engineering
                 headcount.
               </p>
             </div>
@@ -447,7 +435,7 @@ export default function LandingPage() {
                   Need something deeper? Book a session with our operations team and we’ll tailor the onboarding journey to your
                   desk.
                 </p>
-                <Link href="mailto:hello@tradebot.ai" legacyBehavior>
+                <Link href="mailto:hello@octobot.ai" legacyBehavior>
                   <a>
                     <Button variant="secondary">Talk to an Operator</Button>
                   </a>
@@ -492,9 +480,9 @@ export default function LandingPage() {
             style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1.5rem' }}
           >
             <div>
-              <p style={{ margin: 0, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' }}>TradeBot</p>
+              <p style={{ margin: 0, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' }}>OctoBot</p>
               <p style={{ margin: '0.35rem 0 0', color: '#94A3B8', fontSize: '0.85rem' }}>
-                © {new Date().getFullYear()} TradeBot. All rights reserved.
+                © {new Date().getFullYear()} OctoBot. All rights reserved.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>

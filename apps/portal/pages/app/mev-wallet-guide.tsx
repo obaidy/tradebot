@@ -14,7 +14,7 @@ const SECTIONS = [
     ],
   },
   {
-    title: 'Store it securely in TradeBot',
+    title: 'Store it securely in OctoBot',
     body: [
       'In the dashboard, open the MEV bot card and click “Add key”. Paste the private key. We encrypt it with your master key and store it per client.',
       'You can rotate or remove the key at any time from the same panel.',
@@ -46,7 +46,7 @@ export default function MevWalletGuide() {
   return (
     <>
       <Head>
-        <title>MEV Wallet Onboarding · TradeBot Portal</title>
+        <title>MEV Wallet Onboarding · OctoBot Portal</title>
       </Head>
       <DashboardLayout
         topRightSlot={
@@ -62,7 +62,7 @@ export default function MevWalletGuide() {
             <Badge tone="primary">MEV Arb Bot</Badge>
             <h1 style={{ margin: 0 }}>MEV Wallet Onboarding Checklist</h1>
             <p style={{ margin: 0, color: '#94A3B8' }}>
-              Follow these steps before launching live runs. The Flashbots wallet stays under your control—TradeBot only uses it inside your dedicated runner.
+              Follow these steps before launching live runs. The Flashbots wallet stays under your control—OctoBot only uses it inside your dedicated runner.
             </p>
           </Card>
 

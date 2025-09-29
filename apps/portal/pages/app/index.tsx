@@ -783,7 +783,7 @@ export default function Dashboard() {
     initialSort: [{ columnKey: 'createdAt', direction: 'desc' }],
     filterFn: (row, query) =>
       row.action.toLowerCase().includes(query) || row.actor.toLowerCase().includes(query) || row.createdAt.toLowerCase().includes(query),
-    storageKey: 'tradebot.audit.views',
+    storageKey: 'octobot.audit.views',
   });
 
   const runTable = useTableControls<RunRow>(runHistory, {
@@ -793,7 +793,7 @@ export default function Dashboard() {
       row.runId.toLowerCase().includes(query) ||
       (row.runMode ?? '').toLowerCase().includes(query) ||
       (row.status ?? '').toLowerCase().includes(query),
-    storageKey: 'tradebot.runs.views',
+    storageKey: 'octobot.runs.views',
   });
 
   const inventoryTable = useTableControls<InventoryRow>(inventoryHistory, {
@@ -807,7 +807,7 @@ export default function Dashboard() {
         row.quoteBalance.toString().includes(query)
       );
     },
-    storageKey: 'tradebot.inventory.views',
+    storageKey: 'octobot.inventory.views',
   });
 
   const getColumnLabel = (columns: Column<any>[], key: string) => {
@@ -1010,7 +1010,7 @@ export default function Dashboard() {
   return (
     <>
       <Head>
-        <title>TradeBot Portal · Operator Console</title>
+        <title>OctoBot Portal · Operator Console</title>
       </Head>
       <DashboardLayout topRightSlot={topRightSlot}>
         <div style={{ display: 'grid', gap: '1.75rem' }}>

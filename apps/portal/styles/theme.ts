@@ -1,21 +1,22 @@
 export const palette = {
-  background: '#050816',
-  backgroundAlt: '#0B1224',
-  surface: '#111827',
-  surfaceAlt: '#1F2937',
-  border: 'rgba(148, 163, 184, 0.2)',
-  primary: '#38BDF8',
+  background: '#020617',
+  backgroundAlt: '#071426',
+  surface: '#0B1F33',
+  surfaceAlt: '#15314D',
+  border: 'rgba(34, 211, 238, 0.18)',
+  primary: '#22D3EE',
   primaryStrong: '#0EA5E9',
-  secondary: '#6366F1',
-  accent: '#22D3EE',
+  secondary: '#8B5CF6',
+  accent: '#F472B6',
   success: '#22C55E',
   warning: '#F59E0B',
   danger: '#F87171',
   textPrimary: '#E2E8F0',
   textSecondary: '#94A3B8',
   textMuted: '#64748B',
-  gradientHero: 'linear-gradient(135deg, rgba(56,189,248,0.25) 0%, rgba(236,72,153,0.05) 50%, rgba(99,102,241,0.25) 100%)',
-  glass: 'rgba(15, 23, 42, 0.6)'
+  gradientHero:
+    'linear-gradient(135deg, rgba(34,211,238,0.25) 0%, rgba(139,92,246,0.18) 50%, rgba(244,114,182,0.18) 100%)',
+  glass: 'rgba(9, 20, 38, 0.68)'
 };
 
 export const typography = {
@@ -45,36 +46,36 @@ export const layout = {
 };
 
 export const metricsPlaceholders = {
-  winRate: '82% paper win rate last 90 days',
-  traders: '2,400+ traders automated',
-  volume: '$185M lifetime volume managed',
-  latency: 'Sub-200ms executive guard response',
+  winRate: '86% paper win rate last 90 days',
+  traders: '2,750+ desks automated',
+  volume: '$210M lifetime volume managed',
+  latency: 'Sub-180ms guard reaction time',
 };
 
 export const callouts = {
   hero: {
-    headline: 'Automated crypto execution built for pros',
+    headline: 'OctoBot keeps every arm on the market',
     subheadline:
-      'Deploy adaptive grid strategies, run paper canaries, and go live with full guard rails on a single control plane.',
-    primaryCta: 'Sign in to the Portal',
-    secondaryCta: 'Explore the Bot Lineup',
-    trustBadges: ['Flashbots Ready', 'Audited Guard Rails', 'Stripe Billing', '24/7 Ops Desk'],
+      'Spin up adaptive strategies, monitor multi-venue telemetry, and promote to live with audit-ready guard rails—all from one tentacled command center.',
+    primaryCta: 'Dive into the Portal',
+    secondaryCta: 'Meet the Pods',
+    trustBadges: ['Flashbots Native', 'Eight-Arm Observability', 'Audit-Ready Artefacts', '24/7 Ops Pod'],
   },
   featureSections: [
     {
-      title: 'Adaptive Algorithms',
+      title: 'Adaptive Tentacles',
       description:
-        'Multi-venue grid engine that tunes risk in real time using regime analysis, volatility guards, and kill switches.',
+        'Each limb tunes risk in real time with regime analysis, volatility guards, and intelligent kill switches that surface before drift hits PnL.',
     },
     {
-      title: 'Paper-to-Live Pipeline',
+      title: 'Paper-to-Live Tide',
       description:
-        'Walk-forward regressions, automated paper canaries, and manual promotion gates make every release auditable.',
+        'Walk-forward regressions, automated paper canaries, and human promotion gates keep every promotion traceable from first splash to live waters.',
     },
     {
-      title: 'Operations Command Center',
+      title: 'Ops Reef',
       description:
-        'Full telemetry dashboards, client workflows, billing automation, and on-call tooling to keep humans in control.',
+        'Unified telemetry dashboards, client workflows, billing automation, and on-call tooling that keep operators in control of every tentacle.',
     },
   ],
 };
@@ -84,21 +85,21 @@ export const pricingPlans = [
     name: 'Paper',
     price: '$0',
     cadence: 'per month',
-    highlight: 'Perfect for exploratory testing',
-    features: ['Unlimited paper grids', 'Walk-forward reports', 'Alert integrations', 'Release artifacts archive'],
-    cta: 'Start in Paper',
+    highlight: 'Perfect for exploratory deep dives',
+    features: ['Unlimited paper pods', 'Walk-forward tide reports', 'Alert integrations', 'Release artefact archive'],
+    cta: 'Swim in Paper',
     popular: false,
   },
   {
     name: 'Pro',
     price: '$149',
     cadence: 'per month',
-    highlight: 'All you need to run live with confidence',
+    highlight: 'All eight arms unlocked for live execution',
     features: [
       'Live promotion gates',
       'Multi-exchange credentials',
-      'Ops command center',
-      'Priority on-call support',
+      'Ops reef command center',
+      'Priority pod support',
     ],
     cta: 'Upgrade to Pro',
     popular: true,
@@ -108,7 +109,7 @@ export const pricingPlans = [
     price: 'Let’s talk',
     cadence: 'custom retainers',
     highlight: 'Tailored deployments & white-glove coverage',
-    features: ['Dedicated cluster', '24/7 incident hotline', 'Custom guard policies', 'Private signal integrations'],
+    features: ['Dedicated reef cluster', '24/7 incident hotline', 'Custom guard policies', 'Private signal integrations'],
     cta: 'Book a Strategy Call',
     popular: false,
   },

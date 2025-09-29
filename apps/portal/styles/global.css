@@ -30,9 +30,9 @@ button {
 }
 
 body {
-  background: radial-gradient(circle at top left, rgba(56,189,248,0.08) 0%, transparent 45%),
-              radial-gradient(circle at bottom right, rgba(99,102,241,0.08) 0%, transparent 55%),
-              #050816;
+  background: radial-gradient(circle at top left, rgba(34,211,238,0.12) 0%, transparent 45%),
+              radial-gradient(circle at bottom right, rgba(139,92,246,0.12) 0%, transparent 55%),
+              #020617;
 }
 
 section {
@@ -94,7 +94,7 @@ section {
 
 .hero-grid {
   position: relative;
-  background: linear-gradient(135deg, rgba(14,165,233,0.25), rgba(59,130,246,0.05));
+  background: linear-gradient(135deg, rgba(14,165,233,0.28), rgba(124,58,237,0.08));
   border-radius: 24px;
   padding: clamp(2rem, 6vw, 4rem);
   overflow: hidden;
@@ -274,7 +274,7 @@ section {
   display: grid;
   grid-template-columns: 280px 1fr;
   min-height: 100vh;
-  background: #050816;
+  background: #020617;
   color: #E2E8F0;
   position: relative;
 }
@@ -329,7 +329,93 @@ section {
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(5, 8, 22, 0.65);
+    background: rgba(2, 6, 23, 0.7);
     z-index: 15;
+  }
+}
+
+.octobot-loader {
+  position: fixed;
+  bottom: 2.5rem;
+  right: 2.5rem;
+  width: 80px;
+  height: 80px;
+  pointer-events: none;
+  opacity: 0.92;
+  filter: drop-shadow(0 18px 28px rgba(14, 165, 233, 0.45));
+  z-index: 30;
+}
+
+.octobot-loader svg {
+  width: 100%;
+  height: 100%;
+}
+
+.octobot-loader__body {
+  animation: octobot-float 6s ease-in-out infinite;
+  transform-origin: center 65%;
+}
+
+.octobot-loader__eye {
+  animation: octobot-blink 9s linear infinite;
+  transform-origin: center;
+}
+
+.octobot-loader__tentacle {
+  animation: octobot-wave 3.6s ease-in-out infinite;
+  transform-origin: center 90%;
+}
+
+.octobot-loader__tentacle:nth-of-type(2) {
+  animation-delay: 0.45s;
+}
+
+.octobot-loader__tentacle:nth-of-type(3) {
+  animation-delay: 0.9s;
+}
+
+.octobot-loader__glow {
+  animation: octobot-glow 5s ease-in-out infinite;
+}
+
+@keyframes octobot-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes octobot-wave {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(6deg);
+  }
+}
+
+@keyframes octobot-glow {
+  0%, 100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes octobot-blink {
+  0%, 46%, 48%, 100% {
+    transform: scaleY(1);
+  }
+  47% {
+    transform: scaleY(0.25);
+  }
+}
+
+@media (max-width: 900px) {
+  .octobot-loader {
+    display: none;
   }
 }

@@ -1,0 +1,28 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">OctoBot logo</title>
+  <desc id="desc">Stylised octopus with gradient body and flowing tentacles</desc>
+  <defs>
+    <radialGradient id="octobot-core" cx="50%" cy="38%" r="58%">
+      <stop offset="0%" stop-color="#22D3EE" />
+      <stop offset="55%" stop-color="#0EA5E9" />
+      <stop offset="100%" stop-color="#1E1B4B" />
+    </radialGradient>
+    <linearGradient id="octobot-tentacle" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6" />
+      <stop offset="100%" stop-color="#F472B6" />
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 42c4 6 10 10 15 10" stroke="url(#octobot-tentacle)" stroke-width="4" opacity="0.85" />
+    <path d="M7 37c6 8 17 14 26 14" stroke="url(#octobot-tentacle)" stroke-width="3" opacity="0.45" />
+    <path d="M52 42c-4 6-10 10-15 10" stroke="url(#octobot-tentacle)" stroke-width="4" opacity="0.85" />
+    <path d="M57 37c-6 8-17 14-26 14" stroke="url(#octobot-tentacle)" stroke-width="3" opacity="0.45" />
+    <path d="M19 47c2 4 6 7 13 7s11-3 13-7" stroke="url(#octobot-tentacle)" stroke-width="4" opacity="0.65" />
+  </g>
+  <circle cx="32" cy="27" r="18" fill="url(#octobot-core)" />
+  <ellipse cx="24" cy="26" rx="4" ry="5" fill="#F8FAFC" opacity="0.9" />
+  <ellipse cx="40" cy="26" rx="4" ry="5" fill="#F8FAFC" opacity="0.9" />
+  <circle cx="24" cy="27" r="2.2" fill="#0F172A" />
+  <circle cx="40" cy="27" r="2.2" fill="#0F172A" />
+  <path d="M24 33c2 2 6 3 8 3s6-1 8-3" stroke="#0F172A" stroke-width="2" stroke-linecap="round" />
+</svg>

@@ -352,7 +352,7 @@ export default function AdminDashboard() {
   return (
     <>
       <Head>
-        <title>TradeBot · Admin Console</title>
+        <title>OctoBot · Admin Console</title>
       </Head>
       <DashboardLayout topRightSlot={topRightSlot}>
         <div style={{ display: 'grid', gap: '1.75rem' }}>
