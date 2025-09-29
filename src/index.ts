@@ -49,6 +49,12 @@ async function main() {
   console.log('Using params:', params, 'USE_GUARD=', useGuard);
 
   try {
+    const shouldAutoRun = (process.env.AUTO_RUN ?? 'true').toLowerCase() === 'true';
+    if (!shouldAutoRun) {
+      console.log('AUTO_RUN disabled — services started, skipping grid execution.');
+      return;
+    }
+
     if (useGuard) {
       // runGuardedGrid accepts these params in your codebase — preserves behavior
       await runGuardedGrid('BTC/USDT', params as any);
