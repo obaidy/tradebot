@@ -3,7 +3,7 @@ import { palette, typography } from '../../styles/theme';
 
 export interface BadgeProps {
   children: ReactNode;
-  tone?: 'primary' | 'neutral' | 'success' | 'warning';
+  tone?: 'primary' | 'neutral' | 'success' | 'warning' | 'secondary';
   icon?: ReactNode;
   style?: CSSProperties;
 }
@@ -15,6 +15,11 @@ const toneMap: Record<Tone, { background: string; border: string; color: string 
     background: 'rgba(56, 189, 248, 0.12)',
     border: '1px solid rgba(56, 189, 248, 0.35)',
     color: palette.primary,
+  },
+  secondary: {
+    background: 'rgba(99, 102, 241, 0.15)',
+    border: '1px solid rgba(99, 102, 241, 0.24)',
+    color: palette.secondary,
   },
   neutral: {
     background: 'rgba(148, 163, 184, 0.15)',
