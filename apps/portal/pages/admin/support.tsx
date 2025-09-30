@@ -93,6 +93,7 @@ export default function SupportInbox() {
             if (exists) return prev;
             return [...prev, data.payload];
           });
+          fetchConversation(selectedId);
         }
         if (data?.type === 'status') {
           loadConversations();

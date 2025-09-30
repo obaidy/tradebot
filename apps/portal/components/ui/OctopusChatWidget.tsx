@@ -104,6 +104,8 @@ export function OctopusChatWidget() {
             body: message.body,
             createdAt: message.created_at,
           });
+          refreshConversation(conversationId);
+          loadHistory();
         } else if (data?.type === 'status') {
           setHistory((prev) =>
             prev.map((item) =>
@@ -112,6 +114,7 @@ export function OctopusChatWidget() {
                 : item
             )
           );
+          refreshConversation(conversationId);
         }
       } catch (err) {
         console.error('[octobot-chat] failed to parse event', err);
@@ -127,7 +130,7 @@ export function OctopusChatWidget() {
     }
     pollingRef.current = setInterval(() => {
       refreshConversation(conversationId);
-    }, 10000);
+    }, 8000);
     return () => {
       source.close();
       if (pollingRef.current) {
