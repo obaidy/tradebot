@@ -94,6 +94,7 @@ export default function SupportInbox() {
             return [...prev, data.payload];
           });
           fetchConversation(selectedId);
+          loadConversations();
         }
         if (data?.type === 'status') {
           loadConversations();
