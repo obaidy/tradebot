@@ -1,5 +1,5 @@
 import Head from 'next/head';
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { DashboardLayout } from '../../components/layout/DashboardLayout';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -31,11 +31,51 @@ export default function SupportInbox() {
   const eventsRef = useRef<EventSource | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/chat/conversations?status=${statusFilter}`);
+      if (!res.ok) throw new Error('load_failed');
+      const data = await res.json();
+      const list = (data.conversations ?? []).map((item: any) => ({
+        id: item.id,
+        status: item.status,
+        client_id: item.client_id,
+        last_message_at: item.last_message_at,
+        created_at: item.created_at,
+      }));
+      setConversations(list);
+      if (!selectedId && list.length) {
+        setSelectedId(list[0].id);
+      }
+    } catch (err) {
+      console.error('[support] load conversations failed', err);
+    }
+  }, [selectedId, statusFilter]);
+
   useEffect(() => {
     loadConversations();
     const interval = setInterval(loadConversations, 15000);
     return () => clearInterval(interval);
-  }, [statusFilter]);
+  }, [loadConversations]);
+
+  const fetchConversation = useCallback(async (conversationId: string) => {
+    try {
+      const res = await fetch(`/api/admin/chat/conversations/${conversationId}`);
+      if (!res.ok) throw new Error('detail_load_failed');
+      const data = await res.json();
+      setMessages(
+        (data.messages ?? []).map((msg: any) => ({
+          id: msg.id,
+          sender_type: msg.sender_type,
+          sender_id: msg.sender_id,
+          body: msg.body,
+          created_at: msg.created_at,
+        }))
+      );
+    } catch (err) {
+      console.error('[support] fetch conversation failed', err);
+    }
+  }, []);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -67,51 +107,12 @@ export default function SupportInbox() {
     return () => {
       source.close();
     };
-  }, [selectedId]);
+  }, [fetchConversation, loadConversations, selectedId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
-  const loadConversations = async () => {
-    try {
-      const res = await fetch(`/api/admin/chat/conversations?status=${statusFilter}`);
-      if (!res.ok) throw new Error('load_failed');
-      const data = await res.json();
-      const list = (data.conversations ?? []).map((item: any) => ({
-        id: item.id,
-        status: item.status,
-        client_id: item.client_id,
-        last_message_at: item.last_message_at,
-        created_at: item.created_at,
-      }));
-      setConversations(list);
-      if (!selectedId && list.length) {
-        setSelectedId(list[0].id);
-      }
-    } catch (err) {
-      console.error('[support] load conversations failed', err);
-    }
-  };
-
-  const fetchConversation = async (conversationId: string) => {
-    try {
-      const res = await fetch(`/api/admin/chat/conversations/${conversationId}`);
-      if (!res.ok) throw new Error('detail_load_failed');
-      const data = await res.json();
-      setMessages(
-        (data.messages ?? []).map((msg: any) => ({
-          id: msg.id,
-          sender_type: msg.sender_type,
-          sender_id: msg.sender_id,
-          body: msg.body,
-          created_at: msg.created_at,
-        }))
-      );
-    } catch (err) {
-      console.error('[support] fetch conversation failed', err);
-    }
-  };
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

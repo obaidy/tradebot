@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 type SenderType = 'client' | 'agent' | 'bot' | 'system';
@@ -47,6 +48,7 @@ export function OctopusChatWidget() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requiresAuth, setRequiresAuth] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const eventsRef = useRef<EventSource | null>(null);
 
@@ -117,6 +119,12 @@ export function OctopusChatWidget() {
     setLoading(true);
     try {
       const response = await fetch('/api/chat/conversations', { method: 'POST' });
+      if (response.status === 401) {
+        setRequiresAuth(true);
+        setMessages([]);
+        setHistory([]);
+        return;
+      }
       if (!response.ok) {
         throw new Error('Failed to initialize chat');
       }
@@ -167,24 +175,22 @@ export function OctopusChatWidget() {
     }
   };
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!input.trim() || !conversationId) return;
-    const text = input.trim();
+  const sendChatMessage = async (text: string) => {
+    if (requiresAuth || !text.trim() || !conversationId) return;
+    const trimmed = text.trim();
     const optimisticId = `temp-${Date.now()}`;
     appendMessage({
       id: optimisticId,
       senderType: 'client',
       senderId: 'me',
-      body: text,
+      body: trimmed,
       createdAt: new Date().toISOString(),
     });
-    setInput('');
     try {
       const res = await fetch(`/api/chat/conversations/${conversationId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: text }),
+        body: JSON.stringify({ body: trimmed }),
       });
       if (!res.ok) {
         throw new Error('send_failed');
@@ -199,10 +205,18 @@ export function OctopusChatWidget() {
     }
   };
 
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!input.trim()) return;
+    const text = input;
+    setInput('');
+    await sendChatMessage(text);
+  };
+
   const handleQuickReply = async (reply: QuickReply) => {
+    if (requiresAuth) return;
     setIsOpen(true);
-    setInput(reply.text);
-    await handleSubmit({ preventDefault: () => {}, stopPropagation: () => {} } as unknown as FormEvent);
+    await sendChatMessage(reply.text);
   };
 
   const hasHumanEscalation = useMemo(
@@ -234,7 +248,7 @@ export function OctopusChatWidget() {
             </button>
           </header>
 
-          {historyList.length ? (
+          {requiresAuth ? null : historyList.length ? (
             <section className="octobot-chat__history">
               <p className="octobot-chat__history-title">Recent conversations</p>
               <div className="octobot-chat__history-items">
@@ -268,44 +282,57 @@ export function OctopusChatWidget() {
           ) : null}
 
           <div className="octobot-chat__messages" aria-live="polite">
-            {loading ? (
+            {loading && !requiresAuth ? (
               <div className="octobot-chat__bubble octobot-chat__bubble--bot">Booting up the reef…</div>
             ) : null}
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`octobot-chat__bubble octobot-chat__bubble--${bubbleClass(message.senderType)}`}
-              >
-                {message.body}
-                <span className="octobot-chat__timestamp">{formatTime(message.createdAt)}</span>
+            {requiresAuth ? (
+              <div className="octobot-chat__bubble octobot-chat__bubble--bot">
+                <p style={{ margin: 0 }}>Sign in to OctoBot Portal to start a conversation.</p>
+                <Link href="/app" legacyBehavior>
+                  <a className="octobot-chat__auth-link">Go to sign in</a>
+                </Link>
               </div>
-            ))}
+            ) : (
+              <>
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`octobot-chat__bubble octobot-chat__bubble--${bubbleClass(message.senderType)}`}
+                  >
+                    {message.body}
+                    <span className="octobot-chat__timestamp">{formatTime(message.createdAt)}</span>
+                  </div>
+                ))}
+              </>
+            )}
             <div ref={chatEndRef} />
           </div>
 
-          <div className="octobot-chat__quick-replies">
-            {QUICK_REPLIES.map((reply) => (
-              <button
-                key={reply.label}
-                type="button"
-                className="octobot-chat__chip"
-                onClick={() => handleQuickReply(reply)}
-              >
-                {reply.label}
-              </button>
-            ))}
-          </div>
+          {requiresAuth ? null : (
+            <div className="octobot-chat__quick-replies">
+              {QUICK_REPLIES.map((reply) => (
+                <button
+                  key={reply.label}
+                  type="button"
+                  className="octobot-chat__chip"
+                  onClick={() => handleQuickReply(reply)}
+                >
+                  {reply.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           <form className="octobot-chat__composer" onSubmit={handleSubmit}>
             <input
               type="text"
               value={input}
-              placeholder="Ask me anything…"
+              placeholder={requiresAuth ? 'Sign in to chat with Octavia' : 'Ask me anything…'}
               onChange={(event) => setInput(event.target.value)}
               aria-label="Message Octavia"
-              disabled={loading || !conversationId}
+              disabled={loading || !conversationId || requiresAuth}
             />
-            <button type="submit" disabled={!input.trim() || !conversationId}>
+            <button type="submit" disabled={!input.trim() || !conversationId || requiresAuth}>
               Send
             </button>
           </form>
@@ -313,6 +340,10 @@ export function OctopusChatWidget() {
           <footer className="octobot-chat__footer">
             {error ? (
               <span className="octobot-chat__error">{error}</span>
+            ) : requiresAuth ? (
+              <span>
+                Sign in to your OctoBot account to open a support conversation.
+              </span>
             ) : hasHumanEscalation ? (
               <span>
                 An operator has joined this chat. We’ll follow up in Slack if you step away.

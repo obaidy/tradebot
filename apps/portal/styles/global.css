@@ -719,6 +719,20 @@ section {
   border-color: rgba(56, 189, 248, 0.55);
 }
 
+.octobot-chat__auth-link {
+  display: inline-flex;
+  margin-top: 0.65rem;
+  align-items: center;
+  gap: 0.5rem;
+  color: #38BDF8;
+  font-size: 0.9rem;
+}
+
+.octobot-chat__auth-link::after {
+  content: '→';
+  font-size: 0.85rem;
+}
+
 .octobot-chat__launcher {
   width: 72px;
   height: 72px;
