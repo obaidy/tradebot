@@ -10,8 +10,10 @@ interface ConversationSummary {
   status: string;
   client_id: string;
   client_name?: string | null;
-  last_message_at: string;
-  created_at: string;
+  assigned_agent_id?: string | null;
+  assigned_agent_name?: string | null;
+  lastMessageAt: string;
+  createdAt: string;
 }
 
 interface ChatMessage {
@@ -20,12 +22,15 @@ interface ChatMessage {
   sender_id: string | null;
   body: string;
   created_at: string;
+  sentiment?: { label?: string; confidence?: number } | null;
+  translation?: { detectedLanguage?: string; translatedText?: string; note?: string } | null;
 }
 
 export default function SupportInbox() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationMeta, setConversationMeta] = useState<ConversationSummary | null>(null);
   const [input, setInput] = useState('');
   const [statusFilter, setStatusFilter] = useState<'open' | 'pending' | 'waiting_client' | 'closed'>('open');
   const [error, setError] = useState<string | null>(null);
@@ -37,17 +42,25 @@ export default function SupportInbox() {
       const res = await fetch(`/api/admin/chat/conversations?status=${statusFilter}`);
       if (!res.ok) throw new Error('load_failed');
       const data = await res.json();
-      const list = (data.conversations ?? []).map((item: any) => ({
+      const list: ConversationSummary[] = (data.conversations ?? []).map((item: any) => ({
         id: item.id,
         status: item.status,
         client_id: item.client_id,
         client_name: item.client_name,
-        last_message_at: item.last_message_at,
-        created_at: item.created_at,
+        assigned_agent_id: item.assigned_agent_id,
+        assigned_agent_name: item.assigned_agent_name,
+        lastMessageAt: item.last_message_at,
+        createdAt: item.created_at,
       }));
       setConversations(list);
       if (!selectedId && list.length) {
         setSelectedId(list[0].id);
+      }
+      if (selectedId) {
+        const match = list.find((item) => item.id === selectedId);
+        if (match) {
+          setConversationMeta(match);
+        }
       }
     } catch (err) {
       console.error('[support] load conversations failed', err);
@@ -65,6 +78,16 @@ export default function SupportInbox() {
       const res = await fetch(`/api/admin/chat/conversations/${conversationId}`);
       if (!res.ok) throw new Error('detail_load_failed');
       const data = await res.json();
+      setConversationMeta({
+        id: data.conversation.id,
+        status: data.conversation.status,
+        client_id: data.conversation.client_id,
+        client_name: data.conversation.client_name,
+        assigned_agent_id: data.conversation.assigned_agent_id,
+        assigned_agent_name: data.conversation.assigned_agent_name,
+        lastMessageAt: data.conversation.last_message_at,
+        createdAt: data.conversation.created_at,
+      });
       setMessages(
         (data.messages ?? []).map((msg: any) => ({
           id: msg.id,
@@ -72,6 +95,8 @@ export default function SupportInbox() {
           sender_id: msg.sender_id,
           body: msg.body,
           created_at: msg.created_at,
+          sentiment: msg.sentiment,
+          translation: msg.translation,
         }))
       );
     } catch (err) {
@@ -97,6 +122,11 @@ export default function SupportInbox() {
           loadConversations();
         }
         if (data?.type === 'status') {
+          fetchConversation(selectedId);
+          loadConversations();
+        }
+        if (data?.type === 'assignment') {
+          fetchConversation(selectedId);
           loadConversations();
         }
       } catch (err) {
@@ -194,8 +224,13 @@ export default function SupportInbox() {
                     {conversation.client_name ?? conversation.client_id}
                   </span>
                   <span style={{ fontSize: '0.8rem', color: '#94A3B8' }}>
-                    Updated {new Date(conversation.last_message_at).toLocaleString()}
+                    Updated {new Date(conversation.lastMessageAt).toLocaleString()}
                   </span>
+                  {conversation.assigned_agent_name ? (
+                    <span style={{ fontSize: '0.75rem', color: '#A5B4FC' }}>
+                      Agent: {conversation.assigned_agent_name}
+                    </span>
+                  ) : null}
                   <Badge tone={conversation.status === 'open' ? 'primary' : conversation.status === 'waiting_client' ? 'warning' : 'neutral'}>
                     {conversation.status.replace('_', ' ')}
                   </Badge>
@@ -211,13 +246,21 @@ export default function SupportInbox() {
                 <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'grid', gap: '0.25rem' }}>
                     <h2 style={{ margin: 0, fontSize: '1rem' }}>Conversation</h2>
-                    <p style={{ margin: 0, fontSize: '0.9rem', color: '#94A3B8' }}>#{selectedId.slice(0, 8)}</p>
+                    <p style={{ margin: 0, fontSize: '0.9rem', color: '#94A3B8' }}>
+                      {conversationMeta?.client_name ?? conversationMeta?.client_id ?? `#${selectedId.slice(0, 8)}`}
+                    </p>
+                    {conversationMeta?.assigned_agent_name ? (
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: '#A5B4FC' }}>
+                        Assigned to {conversationMeta.assigned_agent_name}
+                      </p>
+                    ) : null}
                   </div>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
                     <Button
                       variant="secondary"
                       onClick={async () => {
                         await fetch(`/api/admin/chat/conversations/${selectedId}/claim`, { method: 'POST' });
+                        await fetchConversation(selectedId);
                         await loadConversations();
                       }}
                     >
@@ -231,10 +274,17 @@ export default function SupportInbox() {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ status: 'closed' }),
                         });
+                        await fetchConversation(selectedId);
                         await loadConversations();
                       }}
                     >
                       Close
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => window.open(`/api/admin/chat/conversations/${selectedId}/transcript`, '_blank')}
+                    >
+                      Transcript
                     </Button>
                   </div>
                 </header>
@@ -266,11 +316,29 @@ export default function SupportInbox() {
                         gap: '0.35rem',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94A3B8' }}>
-                        <span>{labelForSender(message)}</span>
-                        <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
+                      {(() => {
+                        const senderLabel =
+                          message.sender_type === 'agent'
+                            ? conversationMeta?.assigned_agent_name ?? message.sender_id ?? 'Agent'
+                            : labelForSender(message);
+                        return (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94A3B8' }}>
+                            <span>{senderLabel}</span>
+                            <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        );
+                      })()}
                       <p style={{ margin: 0 }}>{message.body}</p>
+                      {message.translation?.translatedText ? (
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#A5B4FC' }}>
+                          Translation: {message.translation.translatedText}
+                        </p>
+                      ) : null}
+                      {message.sentiment?.label ? (
+                        <span style={{ fontSize: '0.7rem', color: '#94A3B8' }}>
+                          Sentiment: {message.sentiment.label}
+                        </span>
+                      ) : null}
                     </div>
                   ))}
                   <div ref={bottomRef} />
@@ -309,7 +377,7 @@ export default function SupportInbox() {
 
 function labelForSender(message: ChatMessage) {
   if (message.sender_type === 'client') return 'Client';
-  if (message.sender_type === 'agent') return 'You';
+  if (message.sender_type === 'agent') return message.sender_id ?? 'Agent';
   if (message.sender_type === 'bot') return 'Octavia';
   return 'System';
 }

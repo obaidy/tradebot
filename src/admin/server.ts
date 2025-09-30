@@ -440,8 +440,27 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
         const body = ctx.body ?? {};
         const agentId = body.agentId ?? body.agent_id;
         if (!agentId) throw new Error('agent_id_required');
-        await chatService.assignAgent(conversationId, agentId);
-        sendJson(res, 200, { ok: true });
+        const agentName = body.agentName ?? body.agent_name ?? getHeader(ctx.req, 'x-actor') ?? agentId;
+        const assigned = await chatService.assignAgent(conversationId, agentId, agentName);
+        const conversation = assigned ?? (await chatService.getConversation(conversationId));
+        sendJson(res, 200, { ok: true, conversation });
+        return;
+      }
+
+      const transcriptMatch = ctx.pathname.match(/^\/chat\/conversations\/([^/]+)\/transcript$/);
+      if (transcriptMatch && ctx.method === 'GET') {
+        const conversationId = transcriptMatch[1];
+        try {
+          const transcript = await chatService.generateTranscript(conversationId);
+          res.writeHead(200, {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Disposition': `attachment; filename="octobot-transcript-${conversationId}.txt"`,
+            'Cache-Control': 'no-cache',
+          });
+          res.end(transcript);
+        } catch (err) {
+          sendJson(res, 404, { error: err instanceof Error ? err.message : 'transcript_error' });
+        }
         return;
       }
 

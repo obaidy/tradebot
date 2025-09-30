@@ -63,6 +63,8 @@ export class ChatService {
   }
 
   async sendMessage(params: SendMessageParams): Promise<MessageRecord> {
+    const sentiment = await this.analyzeSentiment(params.body);
+    const translation = await this.translateIfNeeded(params.body);
     const message = await this.repo.insertMessage({
       id: randomUUID(),
       conversationId: params.conversationId,
@@ -70,8 +72,8 @@ export class ChatService {
       senderId: params.senderId ?? null,
       body: params.body,
       metadata: params.metadata ?? null,
-      sentiment: await this.analyzeSentiment(params.body),
-      translation: null,
+      sentiment,
+      translation,
     });
     await this.repo.updateConversationTimestamps(params.conversationId, message.created_at);
     this.emit(params.conversationId, {
@@ -92,14 +94,22 @@ export class ChatService {
     return updated;
   }
 
-  async assignAgent(conversationId: string, agentId: string) {
+  async assignAgent(conversationId: string, agentId: string, agentName?: string | null) {
     await this.repo.addParticipant({
       conversationId,
       participantId: agentId,
       participantType: 'agent',
       role: 'assignee',
     });
-    this.emit(conversationId, { type: 'assignment', payload: { agentId } });
+    const updated = await this.repo.updateAssignedAgent(conversationId, agentId, agentName ?? null);
+    this.emit(conversationId, {
+      type: 'assignment',
+      payload: { agentId, agentName: agentName ?? null, conversation: updated },
+    });
+    if (agentName) {
+      this.notifySlack(`Conversation ${conversationId} assigned to ${agentName}`);
+    }
+    return updated;
   }
 
   async listConversations(filter: Parameters<ChatRepo['listConversations']>[0]) {
@@ -160,6 +170,48 @@ export class ChatService {
       return { label: 'positive', confidence: 0.6 };
     }
     return { label: 'neutral', confidence: 0.4 };
+  }
+
+  private async translateIfNeeded(body: string): Promise<Record<string, unknown> | null> {
+    if (!body.trim()) return null;
+    const hasNonAscii = /[^\u0000-\u00ff]/.test(body);
+    if (!hasNonAscii) return null;
+    const translatedText = body;
+    return {
+      detectedLanguage: 'unknown',
+      translatedText,
+      note: 'Automatic translation placeholder',
+    };
+  }
+
+  async generateTranscript(conversationId: string): Promise<string> {
+    const conversation = await this.getConversation(conversationId);
+    if (!conversation) {
+      throw new Error('conversation_not_found');
+    }
+    const messages = await this.getMessages(conversationId, { limit: 1000 });
+    const header = [
+      `OctoBot Conversation Transcript`,
+      `Conversation ID: ${conversation.id}`,
+      conversation.client_name ? `Client: ${conversation.client_name}` : `Client ID: ${conversation.client_id}`,
+      conversation.assigned_agent_name ? `Assigned Agent: ${conversation.assigned_agent_name}` : 'Assigned Agent: Unassigned',
+      `Status: ${conversation.status}`,
+      `Generated At: ${new Date().toISOString()}`,
+      '',
+    ];
+    const lines = messages.map((msg) => {
+      const timestamp = new Date(msg.created_at).toISOString();
+      const sender = msg.sender_type.toUpperCase();
+      let line = `[${timestamp}] ${sender}${msg.sender_id ? ` (${msg.sender_id})` : ''}: ${msg.body}`;
+      if (msg.translation?.translatedText) {
+        line += `\n[translation] ${msg.translation.translatedText}`;
+      }
+      if (msg.sentiment?.label) {
+        line += `\n[sentiment] ${msg.sentiment.label}`;
+      }
+      return line;
+    });
+    return [...header, ...lines].join('\n');
   }
 
   private notifySlack(message: string) {

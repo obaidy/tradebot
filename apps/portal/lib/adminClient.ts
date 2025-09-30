@@ -315,10 +315,10 @@ export async function updateChatConversationStatus(payload: { conversationId: st
   });
 }
 
-export async function claimChatConversation(payload: { conversationId: string; agentId: string }) {
+export async function claimChatConversation(payload: { conversationId: string; agentId: string; agentName?: string }) {
   return adminRequest(`/chat/conversations/${payload.conversationId}/claim`, {
     method: 'POST',
-    body: JSON.stringify({ agentId: payload.agentId }),
+    body: JSON.stringify({ agentId: payload.agentId, agentName: payload.agentName }),
     actor: payload.agentId,
   });
 }

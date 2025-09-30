@@ -12,6 +12,8 @@ export interface ConversationRecord {
   retention_expires_at: Date | null;
   metadata: Record<string, unknown> | null;
   client_name?: string | null;
+  assigned_agent_id?: string | null;
+  assigned_agent_name?: string | null;
 }
 
 export interface MessageRecord {
@@ -192,6 +194,22 @@ export class ChatRepo {
                      LIMIT $${values.length}`;
     const result = await this.pool.query<MessageRecord>(query, values);
     return result.rows;
+  }
+
+  async updateAssignedAgent(conversationId: string, agentId: string, agentName: string | null) {
+    const result = await this.pool.query<ConversationRecord>(
+      `UPDATE chat_conversations
+         SET assigned_agent_id = $2,
+             assigned_agent_name = $3,
+             updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [conversationId, agentId, agentName]
+    );
+    const stored = result.rows[0] ?? null;
+    if (!stored) return null;
+    const enriched = await this.getConversationById(conversationId);
+    return enriched ?? stored;
   }
 
   async addParticipant(record: {

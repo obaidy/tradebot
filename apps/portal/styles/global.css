@@ -656,6 +656,10 @@ section {
   font-size: 0.75rem;
   color: rgba(203, 213, 225, 0.8);
   border-top: 1px solid rgba(148, 163, 184, 0.12);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .octobot-chat__footer a {
@@ -678,6 +682,22 @@ section {
 
 .octobot-chat__error {
   color: #F87171;
+}
+
+.octobot-chat__transcript {
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(15, 23, 42, 0.6);
+  color: #38BDF8;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 10px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+}
+
+.octobot-chat__transcript:hover {
+  background: rgba(56, 189, 248, 0.15);
 }
 
 .octobot-chat__history {

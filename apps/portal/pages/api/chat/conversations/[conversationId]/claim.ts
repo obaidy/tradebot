@@ -19,6 +19,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(400).json({ error: 'conversation_id_required' });
     return;
   }
-  await claimChatConversation({ conversationId, agentId: session.user.id });
+  await claimChatConversation({
+    conversationId,
+    agentId: session.user.id,
+    agentName: session.user.name ?? session.user.email ?? session.user.id,
+  });
   res.status(200).json({ ok: true });
 }

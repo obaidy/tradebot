@@ -9,6 +9,8 @@ type ChatMessage = {
   senderId?: string | null;
   body: string;
   createdAt: string;
+  sentiment?: { label?: string; confidence?: number } | null;
+  translation?: { detectedLanguage?: string; translatedText?: string; note?: string } | null;
 };
 
 type ConversationSummary = {
@@ -16,6 +18,11 @@ type ConversationSummary = {
   status: string;
   lastMessageAt: string;
   createdAt: string;
+  client_id?: string;
+  clientId?: string;
+  client_name?: string | null;
+  assigned_agent_id?: string | null;
+  assigned_agent_name?: string | null;
 };
 
 type QuickReply = {
@@ -49,6 +56,7 @@ export function OctopusChatWidget() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requiresAuth, setRequiresAuth] = useState(false);
+  const [conversationMeta, setConversationMeta] = useState<ConversationSummary | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const eventsRef = useRef<EventSource | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -70,6 +78,16 @@ export function OctopusChatWidget() {
         const res = await fetch(`/api/chat/conversations/${id}`);
         if (!res.ok) return;
         const data = await res.json();
+        setConversationMeta({
+          id: data.conversation.id,
+          status: data.conversation.status,
+          client_id: data.conversation.client_id,
+          client_name: data.conversation.client_name,
+          assigned_agent_name: data.conversation.assigned_agent_name,
+          assigned_agent_id: data.conversation.assigned_agent_id,
+          lastMessageAt: data.conversation.last_message_at,
+          createdAt: data.conversation.created_at,
+        });
         setMessages(
           (data.messages ?? []).map((msg: any) => ({
             id: msg.id,
@@ -77,6 +95,8 @@ export function OctopusChatWidget() {
             senderId: msg.sender_id ?? null,
             body: msg.body,
             createdAt: msg.created_at,
+            sentiment: msg.sentiment,
+            translation: msg.translation,
           }))
         );
       } catch (err) {
@@ -103,6 +123,8 @@ export function OctopusChatWidget() {
             senderId: message.sender_id ?? null,
             body: message.body,
             createdAt: message.created_at,
+            sentiment: message.sentiment,
+            translation: message.translation,
           });
           refreshConversation(conversationId);
           loadHistory();
@@ -170,6 +192,16 @@ export function OctopusChatWidget() {
       const data = await response.json();
       const conv = data.conversation;
       setConversationId(conv.id);
+      setConversationMeta({
+        id: conv.id,
+        status: conv.status,
+        client_id: conv.client_id,
+        client_name: conv.client_name,
+        assigned_agent_name: conv.assigned_agent_name,
+        assigned_agent_id: conv.assigned_agent_id,
+        lastMessageAt: conv.last_message_at,
+        createdAt: conv.created_at,
+      });
       setMessages(
         (data.messages ?? []).map((msg: any) => ({
           id: msg.id,
@@ -177,6 +209,8 @@ export function OctopusChatWidget() {
           senderId: msg.sender_id ?? null,
           body: msg.body,
           createdAt: msg.created_at,
+          sentiment: msg.sentiment,
+          translation: msg.translation,
         }))
       );
       await loadHistory();
@@ -200,6 +234,9 @@ export function OctopusChatWidget() {
           status: item.status,
           lastMessageAt: item.last_message_at,
           createdAt: item.created_at,
+          assigned_agent_name: item.assigned_agent_name,
+          assigned_agent_id: item.assigned_agent_id,
+          client_name: item.client_name,
         }))
       );
     } catch (err) {
@@ -301,6 +338,15 @@ export function OctopusChatWidget() {
                       if (!res.ok) return;
                       const data = await res.json();
                       setConversationId(data.conversation.id);
+                      setConversationMeta({
+                        id: data.conversation.id,
+                        status: data.conversation.status,
+                        client_id: data.conversation.client_id,
+                        client_name: data.conversation.client_name,
+                        assigned_agent_name: data.conversation.assigned_agent_name,
+                        lastMessageAt: data.conversation.last_message_at,
+                        createdAt: data.conversation.created_at,
+                      });
                       setMessages(
                         (data.messages ?? []).map((msg: any) => ({
                           id: msg.id,
@@ -308,6 +354,8 @@ export function OctopusChatWidget() {
                           senderId: msg.sender_id ?? null,
                           body: msg.body,
                           createdAt: msg.created_at,
+                          sentiment: msg.sentiment,
+                          translation: msg.translation,
                         }))
                       );
                     }}
@@ -333,12 +381,23 @@ export function OctopusChatWidget() {
               </div>
             ) : (
               <>
+                {conversationMeta?.assigned_agent_name ? (
+                  <div className="octobot-chat__bubble octobot-chat__bubble--bot">
+                    <strong>Operator assigned:</strong> {conversationMeta.assigned_agent_name}
+                  </div>
+                ) : null}
                 {messages.map((message) => (
                   <div
                     key={message.id}
                     className={`octobot-chat__bubble octobot-chat__bubble--${bubbleClass(message.senderType)}`}
                   >
                     {message.body}
+                    {message.translation?.translatedText ? (
+                      <span className="octobot-chat__timestamp">Translation: {message.translation.translatedText}</span>
+                    ) : null}
+                    {message.sentiment?.label ? (
+                      <span className="octobot-chat__timestamp">Sentiment: {message.sentiment.label}</span>
+                    ) : null}
                     <span className="octobot-chat__timestamp">{formatTime(message.createdAt)}</span>
                   </div>
                 ))}
@@ -377,22 +436,29 @@ export function OctopusChatWidget() {
           </form>
 
           <footer className="octobot-chat__footer">
-            {error ? (
-              <span className="octobot-chat__error">{error}</span>
-            ) : requiresAuth ? (
-              <span>
-                Sign in to your OctoBot account to open a support conversation.
-              </span>
-            ) : hasHumanEscalation ? (
-              <span>
-                An operator has joined this chat. We’ll follow up in Slack if you step away.
-              </span>
-            ) : (
-              <span>
-                Need a human? Type <span className="octobot-chat__inline-code">handoff</span> or email{' '}
-                <a href="mailto:operations@octobot.ai">operations@octobot.ai</a>.
-              </span>
-            )}
+            <span>
+              {error ? (
+                <span className="octobot-chat__error">{error}</span>
+              ) : requiresAuth ? (
+                'Sign in to your OctoBot account to open a support conversation.'
+              ) : hasHumanEscalation ? (
+                'An operator has joined this chat. We’ll follow up in Slack if you step away.'
+              ) : (
+                <>
+                  Need a human? Type <span className="octobot-chat__inline-code">handoff</span> or email{' '}
+                  <a href="mailto:operations@octobot.ai">operations@octobot.ai</a>.
+                </>
+              )}
+            </span>
+            {conversationId && !requiresAuth ? (
+              <button
+                type="button"
+                className="octobot-chat__transcript"
+                onClick={() => window.open(`/api/chat/conversations/${conversationId}/transcript`, '_blank')}
+              >
+                Transcript
+              </button>
+            ) : null}
           </footer>
         </div>
       ) : null}

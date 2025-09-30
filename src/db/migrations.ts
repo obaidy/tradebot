@@ -279,6 +279,9 @@ export async function runMigrations(pool: Pool) {
 
   await pool.query(`INSERT INTO bot_guard_state (client_id) VALUES ('default') ON CONFLICT (client_id) DO NOTHING`);
 
+  await pool.query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS assigned_agent_id TEXT`);
+  await pool.query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS assigned_agent_name TEXT`);
+
   const starterPlan = PLAN_DEFINITIONS.find((plan) => plan.id === 'starter');
   if (starterPlan) {
     const starterLimits = buildPlanLimits(starterPlan);
