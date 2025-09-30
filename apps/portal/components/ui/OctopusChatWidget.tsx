@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type SenderType = 'client' | 'agent' | 'bot' | 'system';
 
@@ -51,14 +51,40 @@ export function OctopusChatWidget() {
   const [requiresAuth, setRequiresAuth] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const eventsRef = useRef<EventSource | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     bootstrap();
     return () => {
       eventsRef.current?.close();
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const refreshConversation = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`/api/chat/conversations/${id}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setMessages(
+          (data.messages ?? []).map((msg: any) => ({
+            id: msg.id,
+            senderType: msg.sender_type ?? 'bot',
+            senderId: msg.sender_id ?? null,
+            body: msg.body,
+            createdAt: msg.created_at,
+          }))
+        );
+      } catch (err) {
+        console.error('[octobot-chat] refresh failed', err);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!conversationId) return;
@@ -96,10 +122,20 @@ export function OctopusChatWidget() {
       eventsRef.current = null;
     };
     eventsRef.current = source;
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
+    pollingRef.current = setInterval(() => {
+      refreshConversation(conversationId);
+    }, 10000);
     return () => {
       source.close();
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
     };
-  }, [conversationId]);
+  }, [conversationId, refreshConversation]);
 
   useEffect(() => {
     if (!isOpen) return;

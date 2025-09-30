@@ -9,6 +9,7 @@ interface ConversationSummary {
   id: string;
   status: string;
   client_id: string;
+  client_name?: string | null;
   last_message_at: string;
   created_at: string;
 }
@@ -40,6 +41,7 @@ export default function SupportInbox() {
         id: item.id,
         status: item.status,
         client_id: item.client_id,
+        client_name: item.client_name,
         last_message_at: item.last_message_at,
         created_at: item.created_at,
       }));
@@ -104,8 +106,12 @@ export default function SupportInbox() {
       eventsRef.current = null;
     };
     eventsRef.current = source;
+    const poll = setInterval(() => {
+      fetchConversation(selectedId);
+    }, 8000);
     return () => {
       source.close();
+      clearInterval(poll);
     };
   }, [fetchConversation, loadConversations, selectedId]);
 
@@ -182,7 +188,9 @@ export default function SupportInbox() {
                     gap: '0.35rem',
                   }}
                 >
-                  <span style={{ fontWeight: 600 }}>{conversation.client_id}</span>
+                  <span style={{ fontWeight: 600 }}>
+                    {conversation.client_name ?? conversation.client_id}
+                  </span>
                   <span style={{ fontSize: '0.8rem', color: '#94A3B8' }}>
                     Updated {new Date(conversation.last_message_at).toLocaleString()}
                   </span>

@@ -11,6 +11,7 @@ export interface ConversationRecord {
   last_message_at: Date;
   retention_expires_at: Date | null;
   metadata: Record<string, unknown> | null;
+  client_name?: string | null;
 }
 
 export interface MessageRecord {
@@ -60,7 +61,9 @@ export class ChatRepo {
         record.metadata ?? null,
       ]
     );
-    return result.rows[0];
+    const stored = result.rows[0];
+    const enriched = await this.getConversationById(stored.id);
+    return enriched ?? stored;
   }
 
   async updateConversationTimestamps(id: string, lastMessageAt: Date): Promise<void> {
@@ -85,7 +88,10 @@ export class ChatRepo {
 
   async getConversationById(id: string): Promise<ConversationRecord | null> {
     const result = await this.pool.query<ConversationRecord>(
-      `SELECT * FROM chat_conversations WHERE id = $1`,
+      `SELECT chat_conversations.*, clients.name AS client_name
+         FROM chat_conversations
+         LEFT JOIN clients ON clients.id = chat_conversations.client_id
+         WHERE chat_conversations.id = $1`,
       [id]
     );
     return result.rows[0] ?? null;
@@ -131,8 +137,11 @@ export class ChatRepo {
     values.push(filter.offset ?? 0);
     const offsetIndex = values.length;
 
-    const query = `SELECT * FROM chat_conversations ${where}
-                     ORDER BY last_message_at DESC
+    const query = `SELECT chat_conversations.*, clients.name AS client_name
+                     FROM chat_conversations
+                     LEFT JOIN clients ON clients.id = chat_conversations.client_id
+                     ${where}
+                     ORDER BY chat_conversations.last_message_at DESC
                      LIMIT $${limitIndex} OFFSET $${offsetIndex}`;
     const result = await this.pool.query<ConversationRecord>(query, values);
     return result.rows;

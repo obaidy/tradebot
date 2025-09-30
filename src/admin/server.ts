@@ -353,9 +353,14 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
           retentionDays,
           metadata: body.metadata ?? null,
         });
+        const clientRecord = await clientsRepo.findById(clientId).catch(() => null);
         const messages = await chatService.getMessages(conversation.id, { limit: 100 });
         const participants = await chatService.listParticipants(conversation.id);
-        sendJson(res, 201, { conversation, messages, participants });
+        sendJson(res, 201, {
+          conversation: { ...conversation, client_name: clientRecord?.name ?? conversation.client_id },
+          messages,
+          participants,
+        });
         return;
       }
 
@@ -398,9 +403,19 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
           sendJson(res, 404, { error: 'not_found' });
           return;
         }
+        const clientRecord = await clientsRepo
+          .findById(conversation.client_id)
+          .catch(() => null);
         const messages = await chatService.getMessages(conversationId, { limit: 200 });
         const participants = await chatService.listParticipants(conversationId);
-        sendJson(res, 200, { conversation, messages, participants });
+        sendJson(res, 200, {
+          conversation: {
+            ...conversation,
+            client_name: conversation.client_name ?? clientRecord?.name ?? conversation.client_id,
+          },
+          messages,
+          participants,
+        });
         return;
       }
 

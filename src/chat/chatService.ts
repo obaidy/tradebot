@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
+import https from 'https';
 import { ChatRepo, ConversationRecord, MessageRecord } from './chatRepo';
 import { logger } from '../utils/logger';
 
@@ -167,18 +168,29 @@ export class ChatService {
       logger.info('chat_slack_stub', { message });
       return;
     }
-    const runtimeFetch = (globalThis as any).fetch as typeof fetch | undefined;
-    if (!runtimeFetch) {
-      logger.warn('chat_slack_missing_fetch');
-      return;
-    }
-    runtimeFetch(webhook, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: message }),
-    }).catch((err) => {
+    try {
+      const url = new URL(webhook);
+      const req = https.request(
+        {
+          method: 'POST',
+          protocol: url.protocol,
+          hostname: url.hostname,
+          port: url.port,
+          path: `${url.pathname}${url.search}`,
+          headers: { 'Content-Type': 'application/json' },
+        },
+        (res) => {
+          res.on('data', () => {});
+        }
+      );
+      req.on('error', (err) => {
+        logger.warn('chat_slack_error', { error: err instanceof Error ? err.message : err });
+      });
+      req.write(JSON.stringify({ text: message }));
+      req.end();
+    } catch (err) {
       logger.warn('chat_slack_error', { error: err instanceof Error ? err.message : err });
-    });
+    }
   }
 }
 
