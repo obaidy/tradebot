@@ -259,3 +259,66 @@ export async function acceptClientAgreements(
 export async function fetchLegalDocument(slug: string) {
   return adminRequest(`/legal/${slug}`);
 }
+
+export async function ensureChatConversation(payload: {
+  clientId: string;
+  subject?: string | null;
+}) {
+  return adminRequest('/chat/conversations', {
+    method: 'POST',
+    body: JSON.stringify({ clientId: payload.clientId, subject: payload.subject ?? null }),
+    actor: payload.clientId,
+  });
+}
+
+export async function listChatConversations(payload: {
+  status?: string;
+  clientId?: string;
+  orgId?: string;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  if (payload.status) params.append('status', payload.status);
+  if (payload.clientId) params.append('clientId', payload.clientId);
+  if (payload.orgId) params.append('orgId', payload.orgId);
+  if (payload.limit) params.append('limit', String(payload.limit));
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  return adminRequest(`/chat/conversations${suffix}`);
+}
+
+export async function fetchChatConversation(conversationId: string) {
+  return adminRequest(`/chat/conversations/${conversationId}`);
+}
+
+export async function postChatMessage(payload: {
+  conversationId: string;
+  senderType: 'client' | 'agent' | 'bot' | 'system';
+  senderId?: string;
+  body: string;
+}) {
+  return adminRequest(`/chat/conversations/${payload.conversationId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({
+      senderType: payload.senderType,
+      senderId: payload.senderId,
+      body: payload.body,
+    }),
+    actor: payload.senderId ?? payload.senderType,
+  });
+}
+
+export async function updateChatConversationStatus(payload: { conversationId: string; status: string }) {
+  return adminRequest(`/chat/conversations/${payload.conversationId}/status`, {
+    method: 'POST',
+    body: JSON.stringify({ status: payload.status }),
+    actor: payload.status,
+  });
+}
+
+export async function claimChatConversation(payload: { conversationId: string; agentId: string }) {
+  return adminRequest(`/chat/conversations/${payload.conversationId}/claim`, {
+    method: 'POST',
+    body: JSON.stringify({ agentId: payload.agentId }),
+    actor: payload.agentId,
+  });
+}

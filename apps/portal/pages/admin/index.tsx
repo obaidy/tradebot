@@ -372,9 +372,14 @@ export default function AdminDashboard() {
               <h1 style={{ margin: 0 }}>Operations dashboard</h1>
               <p style={{ margin: 0, color: '#94A3B8' }}>Monitor fleet health, billing posture, and guard telemetry.</p>
             </div>
-            <Button variant="ghost" onClick={loadData}>
-              Refresh now
-            </Button>
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <Button variant="secondary" onClick={() => (window.location.href = '/admin/support')}>
+                Support inbox
+              </Button>
+              <Button variant="ghost" onClick={loadData}>
+                Refresh now
+              </Button>
+            </div>
           </div>
 
           {trendPoints && trendPoints.length > 0 ? (

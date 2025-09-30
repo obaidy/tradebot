@@ -39,6 +39,7 @@ import {
 import { logger } from '../utils/logger';
 import { ClientAgreementsRepository } from '../db/clientAgreementsRepo';
 import { listStrategies, getStrategyDefinition, ensureStrategySupportsRunMode, checkStrategyRequirements } from '../strategies/registry';
+import { getChatService } from '../chat/chatService';
 import type { StrategyId, StrategyRunMode } from '../strategies/types';
 import type { PlanId } from '../config/planTypes';
 
@@ -55,6 +56,7 @@ interface RequestContext {
 }
 
 const ADMIN_TOKEN = process.env.ADMIN_API_TOKEN || '';
+const CHAT_DEFAULT_RETENTION_DAYS = Number(process.env.CHAT_RETENTION_DAYS || 730);
 
 function unauthorized(res: ServerResponse) {
   res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' });
@@ -159,6 +161,7 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
   const auditRepo = new ClientAuditLogRepository(pool);
   const workersRepo = new ClientWorkersRepository(pool);
   const agreementsRepo = new ClientAgreementsRepository(pool);
+  const chatService = getChatService(pool);
 
   const REQUIRED_DOCUMENTS = [
     { documentType: 'tos', name: 'Terms of Service', version: APP_CONFIG.LEGAL.TOS_VERSION, file: 'terms' },
@@ -331,6 +334,122 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
           killRequested: client.killRequested,
         }));
         sendJson(res, 200, payload);
+        return;
+      }
+
+      if (ctx.pathname === '/chat/conversations' && ctx.method === 'POST') {
+        const body = ctx.body ?? {};
+        const clientId = body.clientId ?? body.client_id;
+        if (!clientId) {
+          throw new Error('client_id_required');
+        }
+        const subject = body.subject ?? null;
+        const retentionDays = body.retentionDays ?? body.retention_days ?? CHAT_DEFAULT_RETENTION_DAYS;
+        const orgId = body.orgId ?? body.org_id ?? null;
+        const conversation = await chatService.ensureConversation({
+          clientId,
+          subject,
+          orgId,
+          retentionDays,
+          metadata: body.metadata ?? null,
+        });
+        const messages = await chatService.getMessages(conversation.id, { limit: 100 });
+        const participants = await chatService.listParticipants(conversation.id);
+        sendJson(res, 201, { conversation, messages, participants });
+        return;
+      }
+
+      if (ctx.pathname === '/chat/conversations' && ctx.method === 'GET') {
+        const status = ctx.query.get('status') ?? undefined;
+        const clientId = ctx.query.get('clientId') ?? ctx.query.get('client_id') ?? undefined;
+        const orgId = ctx.query.get('orgId') ?? ctx.query.get('org_id') ?? undefined;
+        const limit = ctx.query.get('limit') ? Number(ctx.query.get('limit')) : undefined;
+        const conversations = await chatService.listConversations({ status, clientId, orgId, limit });
+        sendJson(res, 200, { conversations });
+        return;
+      }
+
+      const chatMessageMatch = ctx.pathname.match(/^\/chat\/conversations\/([^/]+)\/messages$/);
+      if (chatMessageMatch && ctx.method === 'POST') {
+        const conversationId = chatMessageMatch[1];
+        const body = ctx.body ?? {};
+        const senderType = (body.senderType ?? body.sender_type ?? 'client') as 'client' | 'agent' | 'bot' | 'system';
+        const senderId = body.senderId ?? body.sender_id ?? null;
+        const messageBody = body.body;
+        if (!messageBody) throw new Error('message_body_required');
+        const metadata = body.metadata ?? null;
+        const message = await chatService.sendMessage({
+          conversationId,
+          senderType,
+          senderId,
+          body: messageBody,
+          metadata,
+        });
+        const participants = await chatService.listParticipants(conversationId);
+        sendJson(res, 201, { message, participants });
+        return;
+      }
+
+      const chatConversationMatch = ctx.pathname.match(/^\/chat\/conversations\/([^/]+)$/);
+      if (chatConversationMatch && ctx.method === 'GET') {
+        const conversationId = chatConversationMatch[1];
+        const conversation = await chatService.getConversation(conversationId);
+        if (!conversation) {
+          sendJson(res, 404, { error: 'not_found' });
+          return;
+        }
+        const messages = await chatService.getMessages(conversationId, { limit: 200 });
+        const participants = await chatService.listParticipants(conversationId);
+        sendJson(res, 200, { conversation, messages, participants });
+        return;
+      }
+
+      const chatStatusMatch = ctx.pathname.match(/^\/chat\/conversations\/([^/]+)\/status$/);
+      if (chatStatusMatch && ctx.method === 'POST') {
+        const conversationId = chatStatusMatch[1];
+        const body = ctx.body ?? {};
+        const status = body.status;
+        if (!status) throw new Error('status_required');
+        const updated = await chatService.updateStatus(conversationId, status, body.metadata ?? null);
+        if (!updated) {
+          sendJson(res, 404, { error: 'not_found' });
+          return;
+        }
+        sendJson(res, 200, { conversation: updated });
+        return;
+      }
+
+      const chatClaimMatch = ctx.pathname.match(/^\/chat\/conversations\/([^/]+)\/claim$/);
+      if (chatClaimMatch && ctx.method === 'POST') {
+        const conversationId = chatClaimMatch[1];
+        const body = ctx.body ?? {};
+        const agentId = body.agentId ?? body.agent_id;
+        if (!agentId) throw new Error('agent_id_required');
+        await chatService.assignAgent(conversationId, agentId);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      const chatEventsMatch = ctx.pathname.match(/^\/chat\/conversations\/([^/]+)\/events$/);
+      if (chatEventsMatch && ctx.method === 'GET') {
+        const conversationId = chatEventsMatch[1];
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        });
+        res.write('\n');
+        const listener = (event: any) => {
+          res.write(`data: ${JSON.stringify(event)}\n\n`);
+        };
+        chatService.on(conversationId, listener);
+        const pingInterval = setInterval(() => {
+          res.write(': ping\n\n');
+        }, 15000);
+        ctx.req.on('close', () => {
+          clearInterval(pingInterval);
+          chatService.off(conversationId, listener);
+        });
         return;
       }
 

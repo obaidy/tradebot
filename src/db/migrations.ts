@@ -134,7 +134,43 @@ const MIGRATION_QUERIES: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_bot_orders_run_side ON bot_orders(run_id, side);`,
   `CREATE INDEX IF NOT EXISTS idx_bot_fills_run ON bot_fills(run_id);`,
   `CREATE INDEX IF NOT EXISTS idx_bot_fills_timestamp ON bot_fills(fill_timestamp DESC);`,
-  `CREATE INDEX IF NOT EXISTS idx_bot_runs_client_status ON bot_runs(client_id, status);`
+  `CREATE INDEX IF NOT EXISTS idx_bot_runs_client_status ON bot_runs(client_id, status);`,
+  `CREATE TABLE IF NOT EXISTS chat_conversations (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      org_id TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      subject TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      retention_expires_at TIMESTAMPTZ,
+      metadata JSONB
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_conversations_client ON chat_conversations(client_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_conversations_status ON chat_conversations(status, last_message_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS chat_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      sender_type TEXT NOT NULL,
+      sender_id TEXT,
+      body TEXT NOT NULL,
+      metadata JSONB,
+      sentiment JSONB,
+      translation JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at);`,
+  `CREATE TABLE IF NOT EXISTS chat_participants (
+      conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      participant_id TEXT NOT NULL,
+      participant_type TEXT NOT NULL,
+      role TEXT,
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      left_at TIMESTAMPTZ,
+      PRIMARY KEY (conversation_id, participant_id, participant_type)
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_participants_conversation ON chat_participants(conversation_id);`
 ];
 
 const ranPools = new WeakSet<Pool>();

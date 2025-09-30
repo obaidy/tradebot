@@ -1,40 +1,26 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
-type Sender = 'bot' | 'user';
+type SenderType = 'client' | 'agent' | 'bot' | 'system';
 
 type ChatMessage = {
   id: string;
-  sender: Sender;
-  text: string;
+  senderType: SenderType;
+  senderId?: string | null;
+  body: string;
+  createdAt: string;
+};
+
+type ConversationSummary = {
+  id: string;
+  status: string;
+  lastMessageAt: string;
+  createdAt: string;
 };
 
 type QuickReply = {
   label: string;
   text: string;
 };
-
-const BOT_RESPONSES: Array<{ pattern: RegExp; reply: string }> = [
-  {
-    pattern: /(price|plan|billing|subscription)/i,
-    reply: 'Pricing lives under Billing → Plans. Need a custom quote? I can loop in the ops pod at operations@octobot.ai.',
-  },
-  {
-    pattern: /(onboard|setup|getting started|start)/i,
-    reply: 'Kick off onboarding from the Dashboard → Overview card. I also dropped our quick start checklist in Docs → Onboarding.',
-  },
-  {
-    pattern: /(live|promotion|deploy|go live)/i,
-    reply: 'Live promotion unlocks once walk-forward and paper gates pass. I can page a human if you need an override—just say "handoff".',
-  },
-  {
-    pattern: /(support|help|human|handoff)/i,
-    reply: 'A human operator is one tentacle away. Email operations@octobot.ai or drop your request here and I will escalate.',
-  },
-  {
-    pattern: /(api|docs|documentation)/i,
-    reply: 'API docs live under Docs → API Reference. The Admin API is authenticated with the bearer token in your workspace settings.',
-  },
-];
 
 const QUICK_REPLIES: QuickReply[] = [
   {
@@ -51,86 +37,180 @@ const QUICK_REPLIES: QuickReply[] = [
   },
 ];
 
-function createBotReply(userText: string): string {
-  const match = BOT_RESPONSES.find(({ pattern }) => pattern.test(userText));
-  if (match) return match.reply;
-  return "I'm listening! I can share docs, surface telemetry, or loop in a human at operations@octobot.ai.";
-}
+const HISTORY_LIMIT = 5;
 
 export function OctopusChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'intro',
-      sender: 'bot',
-      text: 'Hey, I’m Octavia 🐙. Need help with OctoBot? Ask me anything or tap a quick reply below.',
-    },
-  ]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [history, setHistory] = useState<ConversationSummary[]>([]);
   const [input, setInput] = useState('');
-  const [pendingReply, setPendingReply] = useState(false);
-  const pendingTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const eventsRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    if (!isOpen) return undefined;
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    return undefined;
-  }, [isOpen, messages.length]);
-
-  useEffect(() => {
+    bootstrap();
     return () => {
-      if (pendingTimeout.current) {
-        clearTimeout(pendingTimeout.current);
+      eventsRef.current?.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    if (eventsRef.current) {
+      eventsRef.current.close();
+    }
+    const source = new EventSource(`/api/chat/conversations/${conversationId}/events`);
+    source.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data?.type === 'message') {
+          const message = data.payload;
+          appendMessage({
+            id: message.id,
+            senderType: message.sender_type ?? message.senderType ?? 'bot',
+            senderId: message.sender_id ?? null,
+            body: message.body,
+            createdAt: message.created_at,
+          });
+        } else if (data?.type === 'status') {
+          setHistory((prev) =>
+            prev.map((item) =>
+              item.id === conversationId
+                ? { ...item, status: data.payload.status, lastMessageAt: data.payload.last_message_at }
+                : item
+            )
+          );
+        }
+      } catch (err) {
+        console.error('[octobot-chat] failed to parse event', err);
       }
     };
-  }, []);
+    source.onerror = () => {
+      source.close();
+      eventsRef.current = null;
+    };
+    eventsRef.current = source;
+    return () => {
+      source.close();
+    };
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [isOpen, messages.length]);
+
+  const appendMessage = (message: ChatMessage) => {
+    setMessages((prev) => {
+      if (prev.some((existing) => existing.id === message.id)) {
+        return prev;
+      }
+      return [...prev, message];
+    });
+  };
+
+  const bootstrap = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/chat/conversations', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error('Failed to initialize chat');
+      }
+      const data = await response.json();
+      const conv = data.conversation;
+      setConversationId(conv.id);
+      setMessages(
+        (data.messages ?? []).map((msg: any) => ({
+          id: msg.id,
+          senderType: msg.sender_type ?? 'bot',
+          senderId: msg.sender_id ?? null,
+          body: msg.body,
+          createdAt: msg.created_at,
+        }))
+      );
+      await loadHistory();
+    } catch (err) {
+      console.error('[octobot-chat] bootstrap failed', err);
+      setError('Unable to load support chat. Please refresh later.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadHistory = async () => {
+    try {
+      const res = await fetch('/api/chat/conversations?limit=5');
+      if (!res.ok) return;
+      const data = await res.json();
+      const conversations = (data.conversations ?? []) as any[];
+      setHistory(
+        conversations.slice(0, HISTORY_LIMIT).map((item) => ({
+          id: item.id,
+          status: item.status,
+          lastMessageAt: item.last_message_at,
+          createdAt: item.created_at,
+        }))
+      );
+    } catch (err) {
+      console.error('[octobot-chat] history load failed', err);
+    }
+  };
 
   const handleToggle = () => {
     setIsOpen((prev) => !prev);
-  };
-
-  const pushMessage = (sender: Sender, text: string) => {
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        sender,
-        text,
-      },
-    ]);
-  };
-
-  const handleSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!input.trim()) return;
-    const text = input.trim();
-    pushMessage('user', text);
-    setInput('');
-    scheduleBotReply(text);
-  };
-
-  const scheduleBotReply = (userText: string) => {
-    if (pendingTimeout.current) {
-      clearTimeout(pendingTimeout.current);
+    if (!isOpen) {
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 150);
     }
-    setPendingReply(true);
-    pendingTimeout.current = setTimeout(() => {
-      pushMessage('bot', createBotReply(userText));
-      setPendingReply(false);
-      pendingTimeout.current = null;
-    }, 600 + Math.random() * 400);
   };
 
-  const handleQuickReply = (reply: QuickReply) => {
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!input.trim() || !conversationId) return;
+    const text = input.trim();
+    const optimisticId = `temp-${Date.now()}`;
+    appendMessage({
+      id: optimisticId,
+      senderType: 'client',
+      senderId: 'me',
+      body: text,
+      createdAt: new Date().toISOString(),
+    });
+    setInput('');
+    try {
+      const res = await fetch(`/api/chat/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: text }),
+      });
+      if (!res.ok) {
+        throw new Error('send_failed');
+      }
+      await loadHistory();
+    } catch (err) {
+      console.error('[octobot-chat] send failed', err);
+      setError('Message failed to send. Retrying shortly.');
+      setTimeout(() => {
+        setError(null);
+      }, 4000);
+    }
+  };
+
+  const handleQuickReply = async (reply: QuickReply) => {
     setIsOpen(true);
-    pushMessage('user', reply.text);
-    scheduleBotReply(reply.text);
+    setInput(reply.text);
+    await handleSubmit({ preventDefault: () => {}, stopPropagation: () => {} } as unknown as FormEvent);
   };
 
   const hasHumanEscalation = useMemo(
-    () => messages.some((m) => /(ops|human|support|handoff)/i.test(m.text) && m.sender === 'user'),
+    () => messages.some((m) => m.senderType === 'agent'),
     [messages]
   );
+
+  const historyList = history.filter((conv) => conv.id !== conversationId);
 
   return (
     <div className={`octobot-chat ${isOpen ? 'octobot-chat--open' : ''}`}>
@@ -154,22 +234,52 @@ export function OctopusChatWidget() {
             </button>
           </header>
 
+          {historyList.length ? (
+            <section className="octobot-chat__history">
+              <p className="octobot-chat__history-title">Recent conversations</p>
+              <div className="octobot-chat__history-items">
+                {historyList.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="octobot-chat__history-pill"
+                    onClick={async () => {
+                      const res = await fetch(`/api/chat/conversations/${item.id}`);
+                      if (!res.ok) return;
+                      const data = await res.json();
+                      setConversationId(data.conversation.id);
+                      setMessages(
+                        (data.messages ?? []).map((msg: any) => ({
+                          id: msg.id,
+                          senderType: msg.sender_type ?? 'bot',
+                          senderId: msg.sender_id ?? null,
+                          body: msg.body,
+                          createdAt: msg.created_at,
+                        }))
+                      );
+                    }}
+                  >
+                    <span>{formatStatus(item.status)}</span>
+                    <span>{formatTime(item.lastMessageAt)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <div className="octobot-chat__messages" aria-live="polite">
+            {loading ? (
+              <div className="octobot-chat__bubble octobot-chat__bubble--bot">Booting up the reef…</div>
+            ) : null}
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`octobot-chat__bubble octobot-chat__bubble--${message.sender}`}
+                className={`octobot-chat__bubble octobot-chat__bubble--${bubbleClass(message.senderType)}`}
               >
-                {message.text}
+                {message.body}
+                <span className="octobot-chat__timestamp">{formatTime(message.createdAt)}</span>
               </div>
             ))}
-            {pendingReply ? (
-              <div className="octobot-chat__bubble octobot-chat__bubble--bot octobot-chat__bubble--typing">
-                <span />
-                <span />
-                <span />
-              </div>
-            ) : null}
             <div ref={chatEndRef} />
           </div>
 
@@ -193,21 +303,23 @@ export function OctopusChatWidget() {
               placeholder="Ask me anything…"
               onChange={(event) => setInput(event.target.value)}
               aria-label="Message Octavia"
+              disabled={loading || !conversationId}
             />
-            <button type="submit" disabled={!input.trim()}>
+            <button type="submit" disabled={!input.trim() || !conversationId}>
               Send
             </button>
           </form>
 
           <footer className="octobot-chat__footer">
-            {hasHumanEscalation ? (
+            {error ? (
+              <span className="octobot-chat__error">{error}</span>
+            ) : hasHumanEscalation ? (
               <span>
-                A human operator will follow up shortly. You can also email <a href="mailto:operations@octobot.ai">operations@octobot.ai</a>.
+                An operator has joined this chat. We’ll follow up in Slack if you step away.
               </span>
             ) : (
               <span>
-                Need a human? Type <span className="octobot-chat__inline-code">handoff</span> or email
-                {' '}
+                Need a human? Type <span className="octobot-chat__inline-code">handoff</span> or email{' '}
                 <a href="mailto:operations@octobot.ai">operations@octobot.ai</a>.
               </span>
             )}
@@ -225,6 +337,34 @@ export function OctopusChatWidget() {
       </button>
     </div>
   );
+}
+
+function bubbleClass(senderType: SenderType): 'bot' | 'user' {
+  if (senderType === 'client') return 'user';
+  if (senderType === 'agent') return 'bot';
+  if (senderType === 'system') return 'bot';
+  return 'bot';
+}
+
+function formatTime(input: string) {
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatStatus(status: string) {
+  switch (status) {
+    case 'open':
+      return 'Open';
+    case 'waiting_client':
+      return 'Waiting on you';
+    case 'pending':
+      return 'Pending';
+    case 'closed':
+      return 'Closed';
+    default:
+      return status;
+  }
 }
 
 function OctopusGlyph({ animate = true }: { animate?: boolean }) {

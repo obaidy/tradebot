@@ -535,6 +535,7 @@ section {
   max-width: 100%;
   word-break: break-word;
   box-shadow: 0 12px 28px rgba(8, 13, 25, 0.35);
+  position: relative;
 }
 
 .octobot-chat__bubble--bot {
@@ -546,6 +547,15 @@ section {
   background: linear-gradient(135deg, rgba(56, 189, 248, 0.35), rgba(139, 92, 246, 0.35));
   border: 1px solid rgba(56, 189, 248, 0.45);
   align-self: flex-end;
+}
+
+.octobot-chat__timestamp {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(203, 213, 225, 0.6);
 }
 
 .octobot-chat__bubble--typing {
@@ -664,6 +674,49 @@ section {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #E2E8F0;
+}
+
+.octobot-chat__error {
+  color: #F87171;
+}
+
+.octobot-chat__history {
+  padding: 0 1.1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.octobot-chat__history-title {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.octobot-chat__history-items {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.octobot-chat__history-pill {
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  background: rgba(15, 23, 42, 0.55);
+  padding: 0.35rem 0.85rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #E2E8F0;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.octobot-chat__history-pill:hover {
+  border-color: rgba(56, 189, 248, 0.55);
 }
 
 .octobot-chat__launcher {
