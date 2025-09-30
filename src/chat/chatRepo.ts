@@ -99,9 +99,12 @@ export class ChatRepo {
 
   async findActiveConversationForClient(clientId: string): Promise<ConversationRecord | null> {
     const result = await this.pool.query<ConversationRecord>(
-      `SELECT * FROM chat_conversations
-         WHERE client_id = $1 AND status IN ('open', 'pending', 'waiting_client')
-         ORDER BY last_message_at DESC
+      `SELECT chat_conversations.*, clients.name AS client_name
+         FROM chat_conversations
+         LEFT JOIN clients ON clients.id = chat_conversations.client_id
+         WHERE chat_conversations.client_id = $1
+           AND chat_conversations.status IN ('open', 'pending', 'waiting_client')
+         ORDER BY chat_conversations.last_message_at DESC
          LIMIT 1`,
       [clientId]
     );
@@ -120,15 +123,15 @@ export class ChatRepo {
 
     if (filter.status) {
       values.push(filter.status);
-      clauses.push(`status = $${values.length}`);
+      clauses.push(`chat_conversations.status = $${values.length}`);
     }
     if (filter.clientId) {
       values.push(filter.clientId);
-      clauses.push(`client_id = $${values.length}`);
+      clauses.push(`chat_conversations.client_id = $${values.length}`);
     }
     if (filter.orgId) {
       values.push(filter.orgId);
-      clauses.push(`org_id = $${values.length}`);
+      clauses.push(`chat_conversations.org_id = $${values.length}`);
     }
 
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
