@@ -20,6 +20,7 @@ import { logger, setLogContext } from '../utils/logger';
 import { retry } from '../utils/retry';
 import { startSpan } from '../telemetry/tracing';
 import { ClientConfigService } from '../services/clientConfig';
+import { getRealtimeTicker } from '../services/marketData/realtimeTicker';
 
 type ExchangeOrder = {
   id?: string;
@@ -37,6 +38,11 @@ type ExchangeTicker = {
   ask?: number | null;
   last?: number | null;
   timestamp?: number;
+};
+
+type ExchangeTickerWithMeta = ExchangeTicker & {
+  source?: 'ws' | 'rest';
+  latencyMs?: number;
 };
 
 const ORDER_POLL_INTERVAL_MS = 5000;
@@ -398,6 +404,7 @@ export interface OrderExecutionContext {
   metrics?: ExecutionMetrics;
   pendingTpPromises?: Promise<void>[];
   limiter?: RateLimiter;
+  fetchTicker: () => Promise<ExchangeTickerWithMeta>;
 }
 
 export async function executeBuyLevels(context: OrderExecutionContext) {
@@ -837,8 +844,8 @@ async function placeAndMonitorOrder(
         state.tpPlaced += pendingTp;
       }
 
-      const ticker = await retry<ExchangeTicker>(
-        () => exchange.fetchTicker(pair),
+      const ticker = await retry<ExchangeTickerWithMeta>(
+        () => context.fetchTicker(),
         {
           attempts: EXCHANGE_RETRY_ATTEMPTS,
           delayMs: EXCHANGE_RETRY_DELAY_MS,
@@ -1185,8 +1192,8 @@ async function monitorSellOrder(params: {
         raw: updated as any,
       });
 
-      const ticker = await retry<ExchangeTicker>(
-        () => context.exchange.fetchTicker(context.pair),
+      const ticker = await retry<ExchangeTickerWithMeta>(
+        () => context.fetchTicker(),
         {
           attempts: EXCHANGE_RETRY_ATTEMPTS,
           delayMs: EXCHANGE_RETRY_DELAY_MS,
@@ -1600,23 +1607,27 @@ export async function runGridOnce(
 
   await reconcileOpenOrders(pool, { orders: ordersRepo, runs: runsRepo, fills: fillsRepo }, ex as any, clientId);
 
-  const ticker = await retry<ExchangeTicker>(
-    () => ex.fetchTicker(pair),
-    {
-      attempts: EXCHANGE_RETRY_ATTEMPTS,
-      delayMs: EXCHANGE_RETRY_DELAY_MS,
-      backoffFactor: EXCHANGE_RETRY_BACKOFF,
-      onRetry: (error, attempt) => {
-        circuitBreaker.recordApiError('fetch_ticker');
-        logger.warn('fetch_ticker_retry', {
-          event: 'fetch_ticker_retry',
-          pair,
-          attempt,
-          error: errorMessage(error),
-        });
-      },
-    }
-  );
+  const realtimeTickerFetcher = () =>
+    getRealtimeTicker({
+      exchangeId: clientProfile.exchangeId,
+      pair,
+      fallback: () => ex.fetchTicker(pair),
+    }) as Promise<ExchangeTickerWithMeta>;
+
+  const ticker = await retry<ExchangeTickerWithMeta>(realtimeTickerFetcher, {
+    attempts: EXCHANGE_RETRY_ATTEMPTS,
+    delayMs: EXCHANGE_RETRY_DELAY_MS,
+    backoffFactor: EXCHANGE_RETRY_BACKOFF,
+    onRetry: (error, attempt) => {
+      circuitBreaker.recordApiError('fetch_ticker');
+      logger.warn('fetch_ticker_retry', {
+        event: 'fetch_ticker_retry',
+        pair,
+        attempt,
+        error: errorMessage(error),
+      });
+    },
+  });
   const fallbackPrice = typeof ticker.last === 'number' ? ticker.last : 0;
   const bidPrice = typeof ticker.bid === 'number' ? ticker.bid : fallbackPrice;
   const askPrice = typeof ticker.ask === 'number' ? ticker.ask : (fallbackPrice || bidPrice);
@@ -2105,6 +2116,7 @@ export async function runGridOnce(
     },
     pendingTpPromises: [],
     limiter: sharedLimiter,
+    fetchTicker: () => realtimeTickerFetcher(),
   };
 
   const existingSellOrders = await ordersRepo.getOpenOrdersForRun(plan.runId, 'sell');

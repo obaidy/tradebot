@@ -24,6 +24,14 @@ export const CONFIG = {
     OWNER: process.env.RUN_OWNER || 'local',
     CLIENT_ID: process.env.CLIENT_ID || 'default'
   },
+  STREAMING: {
+    ENABLED: (process.env.ENABLE_STREAMING_GATEWAY || 'true').toLowerCase() === 'true',
+    BINANCE_WS_URL: process.env.BINANCE_WS_URL || 'wss://stream.binance.com:9443/ws',
+    RECONNECT_DELAY_MS: Number(process.env.STREAMING_RECONNECT_DELAY_MS || '1500'),
+    MAX_RECONNECT_DELAY_MS: Number(process.env.STREAMING_MAX_RECONNECT_DELAY_MS || '15000'),
+    STALE_TICKER_MS: Number(process.env.STREAMING_STALE_TICKER_MS || '1500'),
+    WAIT_FOR_SNAPSHOT_MS: Number(process.env.STREAMING_WAIT_FOR_SNAPSHOT_MS || '400'),
+  },
   LEGAL: {
     TOS_VERSION: process.env.TOS_VERSION || '2025-01-01',
     PRIVACY_VERSION: process.env.PRIVACY_VERSION || '2025-01-01',

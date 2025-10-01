@@ -101,6 +101,24 @@ type StrategySecretStatus = {
   balanceWei?: string | null;
   balanceEth?: string | null;
   balanceError?: string | null;
+  lastPreflight?: {
+    timestamp: string;
+    chainId?: number | null;
+    networkName?: string | null;
+    latestBlockNumber?: number | null;
+    walletAddress?: string | null;
+    balanceWei?: string | null;
+    balanceEth?: string | null;
+    gasPriceWei?: string | null;
+    gasPriceGwei?: string | null;
+    fundingStatus?: string | null;
+  } | null;
+  lastPreflightError?: {
+    timestamp: string;
+    code?: string | null;
+    message: string;
+  } | null;
+  lastPreflightAt?: string | null;
 };
 
 function formatDate(input: string) {
@@ -120,6 +138,46 @@ function formatTrialCountdown(trialEndsAt: string | null) {
   }
   const diffMinutes = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000));
   return `${diffHours}h ${diffMinutes}m remaining`;
+}
+
+function describeFundingStatus(status?: string | null) {
+  switch ((status ?? '').toLowerCase()) {
+    case 'ok':
+      return 'Healthy';
+    case 'low':
+      return 'Low';
+    case 'zero':
+      return 'Zero';
+    case 'paper':
+      return 'Paper';
+    default:
+      return 'Unknown';
+  }
+}
+
+function fundingStatusColor(status?: string | null) {
+  switch ((status ?? '').toLowerCase()) {
+    case 'ok':
+      return '#34D399';
+    case 'low':
+      return '#F59E0B';
+    case 'zero':
+      return '#F87171';
+    default:
+      return '#94A3B8';
+  }
+}
+
+function formatGwei(value?: string | null) {
+  if (!value) return '—';
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return `${value} gwei`;
+  }
+  if (num >= 100) {
+    return `${num.toFixed(0)} gwei`;
+  }
+  return `${num.toFixed(num >= 10 ? 1 : 2)} gwei`;
 }
 
 function applyClientSnapshotState(
@@ -1115,6 +1173,12 @@ export default function Dashboard() {
                         return { tone: 'neutral' as const, label: 'Coming soon' };
                     }
                   })();
+                  const isMev = strategy.id === 'mev';
+                  const mevPreflight = isMev ? mevWallet?.lastPreflight ?? null : null;
+                  const mevPreflightAt = isMev
+                    ? mevWallet?.lastPreflightAt ?? mevPreflight?.timestamp ?? null
+                    : null;
+                  const mevPreflightError = isMev ? mevWallet?.lastPreflightError ?? null : null;
                   return (
                     <Card
                       key={strategy.id}
@@ -1244,6 +1308,63 @@ export default function Dashboard() {
                               <p style={{ margin: 0, color: '#94A3B8', fontSize: '0.75rem' }}>
                                 Updated {new Date(mevWallet.updatedAt).toLocaleString()}
                               </p>
+                            ) : null}
+                            {mevPreflight ? (
+                              <div
+                                style={{
+                                  marginTop: '0.35rem',
+                                  padding: '0.65rem 0.75rem',
+                                  borderRadius: 10,
+                                  background: 'rgba(30,58,138,0.55)',
+                                  border: '1px solid rgba(59,130,246,0.18)',
+                                  display: 'grid',
+                                  gap: '0.3rem',
+                                }}
+                              >
+                                <p style={{ margin: 0, color: '#C7D2FE', fontSize: '0.75rem', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                                  Last preflight
+                                </p>
+                                <p style={{ margin: 0, color: '#E0E7FF', fontSize: '0.85rem' }}>
+                                  {mevPreflightAt ? new Date(mevPreflightAt).toLocaleString() : '—'}
+                                </p>
+                                <p
+                                  style={{
+                                    margin: 0,
+                                    color: fundingStatusColor(mevPreflight.fundingStatus),
+                                    fontSize: '0.85rem',
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  Funding: {describeFundingStatus(mevPreflight.fundingStatus)}
+                                </p>
+                                <p style={{ margin: 0, color: '#A5B4FC', fontSize: '0.8rem' }}>
+                                  Gas: {formatGwei(mevPreflight.gasPriceGwei)} · Block: {mevPreflight.latestBlockNumber ?? '—'}
+                                </p>
+                                <p style={{ margin: 0, color: '#A5B4FC', fontSize: '0.8rem' }}>
+                                  Chain: {mevPreflight.chainId ?? '—'}{' '}
+                                  {mevPreflight.networkName ? `(${mevPreflight.networkName})` : ''}
+                                </p>
+                              </div>
+                            ) : mevPreflightError ? (
+                              <div
+                                style={{
+                                  marginTop: '0.35rem',
+                                  padding: '0.65rem 0.75rem',
+                                  borderRadius: 10,
+                                  background: 'rgba(153,27,27,0.08)',
+                                  border: '1px solid rgba(248,113,113,0.35)',
+                                }}
+                              >
+                                <p style={{ margin: 0, color: '#F87171', fontSize: '0.85rem', fontWeight: 600 }}>
+                                  Preflight error: {mevPreflightError.message}
+                                </p>
+                                <p style={{ margin: 0, color: '#FCA5A5', fontSize: '0.75rem' }}>
+                                  {mevPreflightError.timestamp
+                                    ? new Date(mevPreflightError.timestamp).toLocaleString()
+                                    : ''}
+                                  {mevPreflightError.code ? ` · ${mevPreflightError.code}` : ''}
+                                </p>
+                              </div>
                             ) : null}
                             {!mevWallet?.hasSecret ? (
                               <p style={{ margin: 0, color: '#94A3B8', fontSize: '0.85rem' }}>

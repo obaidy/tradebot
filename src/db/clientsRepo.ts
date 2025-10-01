@@ -346,6 +346,25 @@ export class ClientStrategySecretsRepository {
     ]);
   }
 
+  async updateMetadata(
+    clientId: string,
+    strategyId: string,
+    metadata: Record<string, unknown> | null
+  ): Promise<ClientStrategySecretRow | null> {
+    const res = await this.pool.query(
+      `UPDATE client_strategy_secrets
+       SET metadata_json = $3,
+           updated_at = NOW()
+       WHERE client_id = $1 AND strategy_id = $2
+       RETURNING *`,
+      [clientId, strategyId, metadata ?? null]
+    );
+    if (!res.rows.length) {
+      return null;
+    }
+    return this.mapRow(res.rows[0]);
+  }
+
   private mapRow(row: any): ClientStrategySecretRow {
     return {
       clientId: row.client_id,

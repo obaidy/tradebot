@@ -168,6 +168,9 @@ async function main() {
             break;
           }
           let strategyConfig = (payload.config as Record<string, unknown> | undefined) ?? undefined;
+          let updateStrategySecretMetadata:
+            | ((patch: Record<string, unknown>) => Promise<void>)
+            | undefined;
           if (strategy.id === 'mev') {
             const secretRow = await strategySecretsRepo.get(clientId, strategy.id);
             if (!secretRow) {
@@ -183,6 +186,11 @@ async function main() {
             await initSecretManager();
             const privateKey = decryptSecret(secretRow.secretEnc);
             strategyConfig = { ...(strategyConfig ?? {}), privateKey };
+            let secretMetadata = { ...(secretRow.metadata ?? {}) } as Record<string, unknown>;
+            updateStrategySecretMetadata = async (patch: Record<string, unknown>) => {
+              secretMetadata = { ...secretMetadata, ...patch };
+              await strategySecretsRepo.updateMetadata(clientId, strategy.id, secretMetadata);
+            };
           }
           if (!checkStrategyRequirements(strategy, { config: strategyConfig })) {
             break;
@@ -207,6 +215,9 @@ async function main() {
             runMode,
             actor,
             config: strategyConfig,
+            services: updateStrategySecretMetadata
+              ? { updateStrategySecretMetadata }
+              : undefined,
           });
           logger.info('client_strategy_run_complete', {
             event: 'client_strategy_run_complete',

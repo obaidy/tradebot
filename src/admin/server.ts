@@ -850,6 +850,10 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
           let balanceWei: string | null = null;
           let balanceEth: string | null = null;
           let balanceError: string | null = null;
+          const metadata = (summary.metadata ?? {}) as Record<string, any>;
+          const lastPreflightRaw = metadata.lastPreflight ?? null;
+          const lastPreflightError = metadata.lastPreflightError ?? null;
+          const lastPreflightAt = metadata.lastPreflightAt ?? lastPreflightRaw?.timestamp ?? null;
           if (summary.address && rpcUrl) {
             try {
               const provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -867,6 +871,9 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
             balanceWei,
             balanceEth,
             balanceError,
+            lastPreflight: lastPreflightRaw,
+            lastPreflightError,
+            lastPreflightAt,
           });
           return;
         }

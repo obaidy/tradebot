@@ -1,3 +1,4 @@
+import { isAddress } from 'ethers';
 import type { StrategyRunContext } from '../../strategies/types';
 
 export class MevConfigError extends Error {
@@ -71,6 +72,24 @@ function normalizeValue(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
   const str = typeof value === 'string' ? value.trim() : String(value).trim();
   return str.length ? str : undefined;
+}
+
+function assertHexPrivateKey(value: string, field: 'privateKey' | 'flashbotsAuthKey') {
+  const normalized = value.startsWith('0x') ? value.slice(2) : value;
+  if (!/^[0-9a-fA-F]{64}$/.test(normalized)) {
+    const code = field === 'privateKey' ? 'mev_private_key_invalid' : 'mev_flashbots_key_invalid';
+    const label = field === 'privateKey' ? 'MEV_PRIVATE_KEY' : 'MEV_FLASHBOTS_AUTH_KEY';
+    throw new MevConfigError(
+      code,
+      `${label} must be a 32-byte hex string (optionally prefixed with 0x).`
+    );
+  }
+}
+
+function assertValidAddress(value: string, code: string, label: string) {
+  if (!isAddress(value)) {
+    throw new MevConfigError(code, `${label} must be a valid EVM address (checksum or lowercase).`);
+  }
 }
 
 function buildNormalizedConfig(rawConfig: StrategyRunContext['config']): NormalizedConfig {
@@ -147,6 +166,18 @@ export function buildMevEnvironment(ctx: StrategyRunContext): MevEnvironmentResu
   }
   if (!tokenOut) {
     throw new MevConfigError('mev_token_out_missing', 'Provide MEV_TOKEN_OUT or set tokenOut in strategy config.');
+  }
+
+  assertHexPrivateKey(privateKey, 'privateKey');
+  assertValidAddress(tokenOut, 'mev_token_out_invalid', 'MEV_TOKEN_OUT');
+  if (routerAddress) {
+    assertValidAddress(routerAddress, 'mev_router_address_invalid', 'MEV_ROUTER_ADDRESS');
+  }
+  if (wethAddress) {
+    assertValidAddress(wethAddress, 'mev_weth_address_invalid', 'MEV_WETH_ADDRESS');
+  }
+  if (flashbotsAuthKey) {
+    assertHexPrivateKey(flashbotsAuthKey, 'flashbotsAuthKey');
   }
 
   const effectiveRpcUrl = rpcUrl ?? buildAlchemyHttpsUrl(alchemyKey!);

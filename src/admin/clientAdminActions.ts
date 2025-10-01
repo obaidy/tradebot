@@ -96,11 +96,12 @@ export interface StrategySecretSummary {
   hasSecret: boolean;
   address?: string;
   updatedAt?: Date;
+  metadata?: Record<string, unknown> | null;
 }
 
 export function mapStrategySecret(row: ClientStrategySecretRow | null): StrategySecretSummary {
   if (!row) {
-    return { clientId: '', strategyId: '', hasSecret: false };
+    return { clientId: '', strategyId: '', hasSecret: false, metadata: null };
   }
   const metadata = row.metadata ?? {};
   const address = typeof metadata.address === 'string' ? metadata.address : undefined;
@@ -110,6 +111,7 @@ export function mapStrategySecret(row: ClientStrategySecretRow | null): Strategy
     hasSecret: true,
     address,
     updatedAt: row.updatedAt,
+    metadata,
   };
 }
 
