@@ -70,6 +70,24 @@ export const intelligenceTakeProfitGauge = new Gauge({
   labelNames: ['client_id', 'pair'] as const,
 });
 
+export const riskVaRGauge = new Gauge({
+  name: 'risk_value_at_risk_usd',
+  help: 'Value at Risk (VaR) computed by risk engine',
+  labelNames: ['client_id', 'pair'] as const,
+});
+
+export const riskStressLossGauge = new Gauge({
+  name: 'risk_stress_loss_usd',
+  help: 'Maximum stress scenario loss computed by risk engine',
+  labelNames: ['client_id', 'pair'] as const,
+});
+
+export const riskKellyGauge = new Gauge({
+  name: 'risk_kelly_fraction',
+  help: 'Kelly criterion fraction used for position sizing',
+  labelNames: ['client_id', 'pair'] as const,
+});
+
 export const inventoryGauge = new Gauge({
   name: 'inventory_base',
   help: 'Current base inventory levels',
@@ -130,6 +148,9 @@ export function resetMetrics() {
   intelligenceVolatilityGauge.reset();
   intelligencePerTradeGauge.reset();
   intelligenceTakeProfitGauge.reset();
+  riskVaRGauge.reset();
+  riskStressLossGauge.reset();
+  riskKellyGauge.reset();
   inventoryGauge.reset();
   clientQueueDepthGauge.reset();
   clientWorkerStatusGauge.reset();

@@ -33,6 +33,8 @@ import {
   intelligencePerTradeGauge,
   intelligenceTakeProfitGauge,
 } from '../telemetry/metrics';
+import { RiskEngine, RiskEvaluationResult } from '../risk';
+import { riskVaRGauge, riskStressLossGauge, riskKellyGauge } from '../telemetry/metrics';
 import { orderReplacementCounter, orderCancelCounter, fillCounter, orderLatency } from '../telemetry/metrics';
 import { circuitBreaker } from '../guard/circuitBreaker';
 import { killSwitch } from '../guard/killSwitch';
@@ -82,6 +84,20 @@ const FALLBACK_FEE_PCT = 0.0004; // 0.04%
 
 export type PlannedSummary = ReturnType<typeof summarizePlanned>;
 
+function parseJsonOr<T>(value: string | undefined, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function getBaseAssetFromPair(pair: string): string {
+  const [base] = pair.split(/[/:_-]/g);
+  return base?.toUpperCase?.() ?? pair;
+}
+
 const newsSentimentCategories = (process.env.NEWS_SENTIMENT_CATEGORIES || '')
   .split(',')
   .map((s) => s.trim())
@@ -127,6 +143,26 @@ const onChainProviderInstance = process.env.GLASSNODE_API_KEY
   ? new GlassnodeOnChainMetricsProvider({ apiKey: process.env.GLASSNODE_API_KEY })
   : new PlaceholderOnChainMetricsProvider();
 
+const sectorLimitConfig = parseJsonOr<Record<string, number>>(process.env.RISK_SECTOR_LIMITS, {
+  general: 0.4,
+});
+
+const correlationLimitConfig = parseJsonOr<Record<string, number>>(process.env.RISK_CORRELATION_LIMITS, {
+  general: 0.6,
+});
+
+const assetSectorMap = parseJsonOr<Record<string, string>>(process.env.RISK_ASSET_SECTOR_MAP, {});
+const assetCorrelationMap = parseJsonOr<Record<string, string>>(process.env.RISK_ASSET_CORRELATION_MAP, {});
+
+const stressScenarioConfig = parseJsonOr<Array<{ name: string; shockPct: number; maxFractionOfBankroll?: number }>>(
+  process.env.RISK_STRESS_SCENARIOS,
+  [
+    { name: 'flash_crash', shockPct: 0.25, maxFractionOfBankroll: 0.15 },
+    { name: 'volatility_spike', shockPct: 0.18, maxFractionOfBankroll: 0.12 },
+    { name: 'tail_event', shockPct: 0.35, maxFractionOfBankroll: 0.2 },
+  ]
+);
+
 export type PlannedTrade = {
   timestamp: string;
   pair: string;
@@ -170,6 +206,7 @@ export type GridPlan = {
     portfolioAllocationUsd?: number | null;
     portfolioWeightPct?: number | null;
     intelligence?: IntelligenceSummary | null;
+    risk?: RiskEvaluationResult | null;
   };
   plannedExposureUsd: number;
 };
@@ -1678,6 +1715,8 @@ export async function runGridOnce(
   let intelligenceSummary: IntelligenceSummary | null = null;
   let takeProfitOverride: number | null = null;
   let performanceMetrics: RecentPerformanceMetrics | null = null;
+  let riskSummary: RiskEvaluationResult | null = null;
+  let riskEngine: RiskEngine | null = null;
   const detachTickerListener = streamingMonitorEnabled
     ? binanceStreamingGateway.onTicker(pair, (snapshot) => {
         const latencyMs = snapshot.source === 'ws' ? Date.now() - snapshot.receivedAt : null;
@@ -1873,6 +1912,25 @@ export async function runGridOnce(
       ? bankrollUsd * Number(perTradePctEnv)
       : bankrollUsd * defaultPerTradePct;
 
+  if (!riskEngine) {
+    const maxPerTradeFromOps = operations.maxPerTradeUsd ?? bankrollUsd * clientProfile.risk.maxPerTradePct;
+    riskEngine = new RiskEngine({
+      bankrollUsd,
+      sectorLimits: sectorLimitConfig,
+      correlationLimits: correlationLimitConfig,
+      assetToSector: assetSectorMap,
+      assetToCorrelationGroup: assetCorrelationMap,
+      maxVarUsd: Number(process.env.RISK_MAX_VAR_USD || bankrollUsd * 0.25),
+      varConfidence: Number(process.env.RISK_VAR_CONFIDENCE || 0.95),
+      stressScenarios: stressScenarioConfig,
+      stressMaxFractionOfBankroll: Number(process.env.RISK_STRESS_MAX_FRACTION || 0.2),
+      drawdownFractionLimit: Number(process.env.RISK_MAX_DRAWDOWN_FRACTION || 0.25),
+      kellyCapFraction: Number(process.env.RISK_KELLY_CAP || 0.18),
+      minPerTradeUsd: Math.max(10, bankrollUsd * 0.005),
+      maxPerTradeUsd: Math.max(50, maxPerTradeFromOps),
+    });
+  }
+
   if (operations.maxPerTradeUsd && perTradeUsdOrig > operations.maxPerTradeUsd) {
     logger.warn('per_trade_limited_by_plan', {
       event: 'per_trade_limited_by_plan',
@@ -2005,6 +2063,60 @@ export async function runGridOnce(
       const tpCandidate = Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02;
       intelligenceTakeProfitGauge.labels(clientId, pair).set(tpCandidate);
     }
+
+    const exposures = await inventoryRepo.getLatestSnapshots();
+    const plannedExposureEstimate = perTradeUsdOrig * adjustedGridSteps;
+    if (!riskEngine) {
+      throw new Error('risk_engine_not_initialized');
+    }
+    const riskDecision = riskEngine.evaluate({
+      pair,
+      baseAsset: getBaseAssetFromPair(pair),
+      plannedExposureUsd: plannedExposureEstimate,
+      perTradeUsd: perTradeUsdOrig,
+      gridSizePct: adjustedGridSizePct,
+      takeProfitPct: takeProfitOverride ?? (Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02),
+      recentPerformance: performanceMetrics,
+      exposures,
+      volatility: regimeAnalysis?.metrics?.volatility ?? null,
+      garchVolatility: intelligenceSummary?.regime.garchVolatility ?? null,
+      currentDrawdownUsd: performanceMetrics && performanceMetrics.drawdowns.length
+        ? Math.min(...performanceMetrics.drawdowns)
+        : null,
+      realizedPnlUsd: performanceMetrics
+        ? performanceMetrics.pnlSeries.reduce((sum, v) => sum + v, 0)
+        : null,
+    });
+
+    riskVaRGauge.labels(clientId, pair).set(riskDecision.valueAtRiskUsd);
+    riskStressLossGauge.labels(clientId, pair).set(riskDecision.maxStressLossUsd);
+    riskKellyGauge.labels(clientId, pair).set(riskDecision.kellyFraction);
+    riskSummary = riskDecision;
+
+    if (!riskDecision.approved) {
+      logger.warn('risk_engine_blocked', {
+        event: 'risk_engine_blocked',
+        pair,
+        reason: riskDecision.blockedReason,
+        messages: riskDecision.messages,
+      });
+      throw new Error(riskDecision.blockedReason || 'Risk engine blocked trade');
+    }
+
+    perTradeUsdOrig = riskDecision.adjustedPerTradeUsd;
+    adjustedGridSizePct = riskDecision.adjustedGridSizePct;
+    takeProfitOverride = riskDecision.adjustedTakeProfitPct;
+
+    logger.info('risk_engine_adjustment', {
+      event: 'risk_engine_adjustment',
+      pair,
+      perTradeUsd: perTradeUsdOrig,
+      gridSizePct: adjustedGridSizePct,
+      takeProfitPct: takeProfitOverride,
+      valueAtRiskUsd: riskDecision.valueAtRiskUsd,
+      stressLossUsd: riskDecision.maxStressLossUsd,
+      messages: riskDecision.messages,
+    });
   } catch (err) {
     logger.warn('regime_analysis_failed', {
       event: 'regime_analysis_failed',
@@ -2105,6 +2217,7 @@ export async function runGridOnce(
       portfolioAllocationUsd: allocationUsdOverride,
       portfolioWeightPct: portfolioWeightPctOverride,
       intelligence: intelligenceSummary,
+      risk: riskSummary,
     },
     plannedExposureUsd,
   };

@@ -286,4 +286,28 @@ export class InventoryRepository {
     );
     return res.rows[0];
   }
+
+  async getLatestSnapshots(): Promise<
+    Array<{ baseAsset: string; quoteAsset: string; baseBalance: number; quoteBalance: number; exposureUsd: number }>
+  > {
+    const res = await this.pool.query(
+      `SELECT DISTINCT ON (base_asset)
+         base_asset,
+         quote_asset,
+         base_balance::float AS base_balance,
+         quote_balance::float AS quote_balance,
+         exposure_usd::float AS exposure_usd
+       FROM bot_inventory_snapshots
+       WHERE client_id = $1
+       ORDER BY base_asset, snapshot_time DESC`,
+      [this.clientId]
+    );
+    return res.rows.map((row) => ({
+      baseAsset: row.base_asset,
+      quoteAsset: row.quote_asset,
+      baseBalance: Number(row.base_balance ?? 0) || 0,
+      quoteBalance: Number(row.quote_balance ?? 0) || 0,
+      exposureUsd: Number(row.exposure_usd ?? 0) || 0,
+    }));
+  }
 }
