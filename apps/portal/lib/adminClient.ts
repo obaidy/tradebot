@@ -6,6 +6,17 @@ if (!ADMIN_API_TOKEN) {
   console.warn('[portal] ADMIN_API_TOKEN is not set. API proxy calls will fail.');
 }
 
+export class AdminApiError extends Error {
+  status: number;
+  detail: any;
+
+  constructor(message: string, status: number, detail?: any) {
+    super(message);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function adminRequest(path: string, init: RequestInit & { actor?: string } = {}) {
   const url = `${ADMIN_API_URL}${path}`;
   const headers: Record<string, string> = {
@@ -15,13 +26,22 @@ async function adminRequest(path: string, init: RequestInit & { actor?: string }
   if (init.actor) {
     headers['x-actor'] = init.actor;
   }
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      ...headers,
-      ...(init.headers as Record<string, string>),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: {
+        ...headers,
+        ...(init.headers as Record<string, string>),
+      },
+    });
+  } catch (error) {
+    throw new AdminApiError(
+      error instanceof Error ? error.message : 'Admin API network error',
+      502,
+      null
+    );
+  }
   if (!res.ok) {
     let detail: any = null;
     try {
@@ -29,7 +49,7 @@ async function adminRequest(path: string, init: RequestInit & { actor?: string }
     } catch {
       // ignore
     }
-    throw new Error(detail?.error || `Admin API request failed: ${res.status}`);
+    throw new AdminApiError(detail?.error || `Admin API request failed: ${res.status}` , res.status, detail);
   }
   if (res.status === 204) {
     return null;

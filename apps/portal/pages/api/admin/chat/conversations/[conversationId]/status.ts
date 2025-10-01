@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authOptions';
-import { updateChatConversationStatus } from '@/lib/adminClient';
+import { updateChatConversationStatus, AdminApiError } from '@/lib/adminClient';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
@@ -24,6 +24,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(400).json({ error: 'status_required' });
     return;
   }
-  const response = await updateChatConversationStatus({ conversationId, status });
-  res.status(200).json(response);
+  try {
+    const response = await updateChatConversationStatus({ conversationId, status });
+    res.status(200).json(response);
+  } catch (error) {
+    if (error instanceof AdminApiError) {
+      res.status(error.status || 502).json({ error: error.message });
+      return;
+    }
+    res.status(502).json({ error: error instanceof Error ? error.message : 'admin_proxy_failed' });
+  }
 }
