@@ -276,8 +276,8 @@ export async function syncCheckoutSession(sessionId: string, clientsRepo: Client
       await applySubscriptionUpdate(subscription, clientsRepo);
     }
 
-    const clientId =
-      checkoutResult?.clientId ??
+  const clientId =
+    checkoutResult?.clientId ??
       subscription?.metadata?.client_id ??
       session.metadata?.client_id ??
       session.client_reference_id ??
@@ -294,4 +294,44 @@ export async function syncCheckoutSession(sessionId: string, clientsRepo: Client
   } finally {
     span.end();
   }
+}
+
+export async function cancelClientSubscription(
+  payload: { clientId: string; cancelAtPeriodEnd?: boolean },
+  clientsRepo: ClientsRepository
+) {
+  const { clientId, cancelAtPeriodEnd = false } = payload;
+  if (!clientId) {
+    throw new Error('client_id_required');
+  }
+  if (!STRIPE_SECRET_KEY) {
+    throw new Error('stripe_not_configured');
+  }
+
+  const client = await clientsRepo.findById(clientId);
+  if (!client) {
+    throw new Error(`client_not_found:${clientId}`);
+  }
+  if (!client.stripeSubscriptionId) {
+    throw new Error('subscription_missing');
+  }
+
+  const stripe = getStripe();
+  const subscription = cancelAtPeriodEnd
+    ? await stripe.subscriptions.update(client.stripeSubscriptionId, { cancel_at_period_end: true })
+    : await stripe.subscriptions.cancel(client.stripeSubscriptionId);
+
+  const billingStatus = cancelAtPeriodEnd ? 'cancellation_pending' : 'canceled';
+  await clientsRepo.updateBilling(clientId, {
+    billingStatus,
+    billingAutoPaused: !cancelAtPeriodEnd,
+    stripeSubscriptionId: cancelAtPeriodEnd ? subscription.id : null,
+  });
+
+  return {
+    clientId,
+    subscriptionId: subscription.id,
+    cancelAtPeriodEnd: subscription.cancel_at_period_end ?? cancelAtPeriodEnd,
+    status: billingStatus,
+  };
 }

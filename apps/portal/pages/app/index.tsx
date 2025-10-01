@@ -1,6 +1,6 @@
 import Head from 'next/head';
 import { signOut, useSession } from 'next-auth/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DashboardLayout } from '../../components/layout/DashboardLayout';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -119,6 +119,43 @@ type StrategySecretStatus = {
     message: string;
   } | null;
   lastPreflightAt?: string | null;
+};
+
+type PortfolioAllocation = {
+  strategyId: string;
+  weightPct: number;
+  maxRiskPct?: number | null;
+  runMode?: string | null;
+  enabled: boolean;
+  config?: Record<string, unknown> | null;
+  updatedAt: string;
+};
+
+type PortfolioPlanEntry = {
+  strategyId: string;
+  requestedRunMode: string;
+  finalRunMode: string;
+  weightPct: number;
+  normalizedWeightPct: number;
+  bankrollUsd: number;
+  allocationUsd: number;
+  maxRiskUsd?: number | null;
+  enabled: boolean;
+  reason?: string | null;
+};
+
+type PortfolioPlan = {
+  entries?: PortfolioPlanEntry[];
+  totalRequestedWeightPct?: number;
+  normalized?: boolean;
+} | null;
+
+type PortfolioDraftRow = {
+  strategyId: string;
+  weightPct: string;
+  maxRiskPct: string;
+  runMode: string;
+  enabled: boolean;
 };
 
 function formatDate(input: string) {
@@ -262,6 +299,15 @@ export default function Dashboard() {
   const [metrics, setMetrics] = useState<any | null>(null);
   const [workers, setWorkers] = useState<any[]>([]);
   const [mevWallet, setMevWallet] = useState<StrategySecretStatus | null>(null);
+  const [portfolioAllocations, setPortfolioAllocations] = useState<PortfolioAllocation[]>([]);
+  const [portfolioPlan, setPortfolioPlan] = useState<PortfolioPlan>(null);
+  const [portfolioEditing, setPortfolioEditing] = useState(false);
+  const [portfolioDraft, setPortfolioDraft] = useState<PortfolioDraftRow[]>([]);
+  const [portfolioDirty, setPortfolioDirty] = useState(false);
+  const [portfolioSaving, setPortfolioSaving] = useState(false);
+  const [portfolioSuccessMessage, setPortfolioSuccessMessage] = useState<string | null>(null);
+  const [portfolioErrorMessage, setPortfolioErrorMessage] = useState<string | null>(null);
+  const [processingCancellation, setProcessingCancellation] = useState(false);
   const [clientState, setClientState] = useState<{ isPaused: boolean; killRequested: boolean }>({
     isPaused: false,
     killRequested: false,
@@ -314,6 +360,45 @@ export default function Dashboard() {
   );
   const needsAgreement = pendingDocuments.length > 0;
 
+  const strategyMetaById = useMemo(() => {
+    const map = new Map<string, StrategySummary>();
+    strategies.forEach((strategy) => {
+      map.set(strategy.id, strategy);
+    });
+    return map;
+  }, [strategies]);
+
+  const portfolioPlanByStrategy = useMemo(() => {
+    const map = new Map<string, PortfolioPlanEntry>();
+    (portfolioPlan?.entries ?? []).forEach((entry) => {
+      map.set(entry.strategyId, entry);
+    });
+    return map;
+  }, [portfolioPlan]);
+
+  const totalPortfolioWeight = useMemo(() => {
+    return portfolioAllocations
+      .filter((allocation) => allocation.enabled !== false)
+      .reduce((sum, allocation) => sum + allocation.weightPct, 0);
+  }, [portfolioAllocations]);
+
+  const availableStrategyOptions = useMemo(() => {
+    return strategies.filter((strategy) => unlockedStrategyIds.has(strategy.id));
+  }, [strategies, unlockedStrategyIds]);
+
+  const totalDraftWeight = useMemo(() => {
+    if (!portfolioDraft.length) return 0;
+    return portfolioDraft
+      .filter((row) => row.enabled)
+      .reduce((sum, row) => sum + (Number(row.weightPct) || 0), 0);
+  }, [portfolioDraft]);
+
+  const planEntries = useMemo(() => portfolioPlan?.entries ?? [], [portfolioPlan]);
+
+  const planActiveWeight = useMemo(() => {
+    return planEntries.filter((entry) => entry.enabled).reduce((sum, entry) => sum + entry.normalizedWeightPct, 0);
+  }, [planEntries]);
+
   useEffect(() => {
     if (!clientId || status === 'loading') return;
     let cancelled = false;
@@ -338,6 +423,7 @@ export default function Dashboard() {
           workersRes,
           historyRes,
           agreementsRes,
+          portfolioRes,
         ] = await Promise.all([
           fetchJson('/api/client/plans'),
           fetchJson('/api/client/strategies'),
@@ -349,6 +435,7 @@ export default function Dashboard() {
           safeFetchJson('/api/client/workers', []),
           safeFetchJson('/api/client/history', null),
           safeFetchJson('/api/client/agreements', null),
+          safeFetchJson('/api/client/portfolio', null),
         ]);
         if (cancelled) return;
         setPlans(plansRes);
@@ -362,6 +449,23 @@ export default function Dashboard() {
         setAuditEntries(auditRes);
         setMetrics(metricsRes);
         setWorkers(workersRes);
+        const portfolioData = portfolioRes as { allocations?: PortfolioAllocation[]; plan?: PortfolioPlan } | null;
+        setPortfolioAllocations(portfolioData?.allocations ?? []);
+        setPortfolioPlan(portfolioData?.plan ?? null);
+        setPortfolioDraft(
+          (portfolioData?.allocations ?? []).map((allocation) => ({
+            strategyId: allocation.strategyId,
+            weightPct: allocation.weightPct.toString(),
+            maxRiskPct:
+              allocation.maxRiskPct != null && Number.isFinite(allocation.maxRiskPct)
+                ? allocation.maxRiskPct.toString()
+                : '',
+            runMode: allocation.runMode ?? '',
+            enabled: allocation.enabled,
+          }))
+        );
+        setPortfolioDirty(false);
+        setPortfolioEditing(false);
         const historyData = historyRes as { runs?: any[]; guard?: any; inventory?: any[] } | null;
         const agreementsData = agreementsRes as { agreements?: any[]; requirements?: any[] } | null;
         setRunHistory(historyData?.runs ?? []);
@@ -383,10 +487,10 @@ export default function Dashboard() {
           });
           return next;
         });
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load workspace');
-        }
+    } catch (err) {
+      if (!cancelled) {
+        setError(err instanceof Error ? err.message : 'Failed to load workspace');
+      }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -526,7 +630,35 @@ export default function Dashboard() {
       });
       return next;
     });
+    await refreshPortfolio();
   }
+
+  const allocationToDraft = useCallback((allocation: PortfolioAllocation): PortfolioDraftRow => ({
+    strategyId: allocation.strategyId,
+    weightPct: allocation.weightPct.toString(),
+    maxRiskPct:
+      allocation.maxRiskPct != null && Number.isFinite(allocation.maxRiskPct)
+        ? allocation.maxRiskPct.toString()
+        : '',
+    runMode: allocation.runMode ?? '',
+    enabled: allocation.enabled,
+  }), []);
+
+  const refreshPortfolio = useCallback(async () => {
+    try {
+      const portfolio = await fetchJson('/api/client/portfolio');
+      setPortfolioAllocations(portfolio?.allocations ?? []);
+      setPortfolioPlan(portfolio?.plan ?? null);
+      if (!portfolioEditing || !portfolioDirty) {
+        setPortfolioDraft((portfolio?.allocations ?? []).map(allocationToDraft));
+        if (!portfolioEditing) {
+          setPortfolioDirty(false);
+        }
+      }
+    } catch (err) {
+      console.warn('[portal] portfolio refresh failed', err);
+    }
+  }, [allocationToDraft, portfolioDirty, portfolioEditing]);
 
   async function refreshAudit() {
     const entries = await fetchJson('/api/client/audit');
@@ -591,6 +723,178 @@ export default function Dashboard() {
     const status = await safeFetchJson('/api/client/strategies/mev', null);
     setMevWallet(status);
   }
+
+  async function handleCancelMembership(cancelAtPeriodEnd = false) {
+    const confirmMessage = cancelAtPeriodEnd
+      ? 'Cancel membership at the end of the current billing period?'
+      : 'Cancel membership immediately? This stops live features once processed.';
+    if (typeof window !== 'undefined' && !window.confirm(confirmMessage)) {
+      return;
+    }
+    try {
+      setProcessingCancellation(true);
+      setMessage(null);
+      setError(null);
+      await fetchJson('/api/client/billing/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelAtPeriodEnd }),
+      });
+      setMessage(cancelAtPeriodEnd ? 'Cancellation scheduled for end of billing period.' : 'Membership cancelled. Billing has been stopped.');
+      await refreshSnapshot();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to cancel membership');
+    } finally {
+      setProcessingCancellation(false);
+    }
+  }
+
+  const startPortfolioEditing = useCallback(() => {
+    setPortfolioSuccessMessage(null);
+    setPortfolioErrorMessage(null);
+    setPortfolioDraft(portfolioAllocations.map(allocationToDraft));
+    setPortfolioDirty(false);
+    setPortfolioEditing(true);
+  }, [portfolioAllocations, allocationToDraft]);
+
+  const cancelPortfolioEditing = useCallback(() => {
+    setPortfolioDraft(portfolioAllocations.map(allocationToDraft));
+    setPortfolioDirty(false);
+    setPortfolioEditing(false);
+    setPortfolioSuccessMessage(null);
+    setPortfolioErrorMessage(null);
+  }, [allocationToDraft, portfolioAllocations]);
+
+  const handlePortfolioFieldChange = useCallback(
+    (index: number, field: keyof PortfolioDraftRow, value: string | boolean) => {
+      setPortfolioDraft((prev) => {
+        const next = [...prev];
+        next[index] = {
+          ...next[index],
+          [field]: field === 'enabled' ? Boolean(value) : String(value),
+        } as PortfolioDraftRow;
+        return next;
+      });
+      setPortfolioDirty(true);
+      setPortfolioSuccessMessage(null);
+      setPortfolioErrorMessage(null);
+    },
+    []
+  );
+
+  const handlePortfolioRemove = useCallback((index: number) => {
+    setPortfolioDraft((prev) => prev.filter((_, idx) => idx !== index));
+    setPortfolioDirty(true);
+    setPortfolioSuccessMessage(null);
+    setPortfolioErrorMessage(null);
+  }, []);
+
+  const handlePortfolioAdd = useCallback(() => {
+    const used = new Set(portfolioDraft.map((row) => row.strategyId));
+    const candidate = availableStrategyOptions.find((strategy) => !used.has(strategy.id));
+    if (!candidate) {
+      setPortfolioErrorMessage('All available strategies are already allocated.');
+      return;
+    }
+    setPortfolioDraft((prev) => [
+      ...prev,
+      {
+        strategyId: candidate.id,
+        weightPct: '0',
+        maxRiskPct: '',
+        runMode: '',
+        enabled: true,
+      },
+    ]);
+    setPortfolioDirty(true);
+    setPortfolioSuccessMessage(null);
+    setPortfolioErrorMessage(null);
+  }, [availableStrategyOptions, portfolioDraft]);
+
+  const handlePortfolioReset = useCallback(() => {
+    setPortfolioDraft(portfolioAllocations.map(allocationToDraft));
+    setPortfolioDirty(false);
+    setPortfolioSuccessMessage(null);
+    setPortfolioErrorMessage(null);
+  }, [allocationToDraft, portfolioAllocations]);
+
+  const handlePortfolioSave = useCallback(async () => {
+    try {
+      setPortfolioErrorMessage(null);
+      setPortfolioSuccessMessage(null);
+      if (!portfolioDirty && !portfolioEditing) return;
+      if (!portfolioDraft.length) {
+        setPortfolioErrorMessage('Add at least one strategy allocation.');
+        return;
+      }
+
+      const payloadAllocations = portfolioDraft.map((row) => ({
+        strategyId: row.strategyId,
+        weightPct: Number(row.weightPct),
+        maxRiskPct: row.maxRiskPct ? Number(row.maxRiskPct) : null,
+        runMode: row.runMode ? row.runMode : null,
+        enabled: row.enabled,
+      }));
+
+      for (const allocation of payloadAllocations) {
+        if (!allocation.strategyId) {
+          setPortfolioErrorMessage('Each allocation must specify a strategy.');
+          return;
+        }
+        if (!Number.isFinite(allocation.weightPct) || allocation.weightPct < 0) {
+          setPortfolioErrorMessage('Weights must be non-negative numbers.');
+          return;
+        }
+        if (
+          allocation.maxRiskPct != null &&
+          (!Number.isFinite(allocation.maxRiskPct) || allocation.maxRiskPct < 0)
+        ) {
+          setPortfolioErrorMessage('Risk caps must be non-negative numbers.');
+          return;
+        }
+        if (allocation.runMode && !['live', 'paper', 'summary'].includes(allocation.runMode)) {
+          setPortfolioErrorMessage('Run mode must be live, paper, or summary.');
+          return;
+        }
+      }
+
+      const enabledWeight = payloadAllocations
+        .filter((allocation) => allocation.enabled)
+        .reduce((sum, allocation) => sum + allocation.weightPct, 0);
+      if (enabledWeight <= 0) {
+        setPortfolioErrorMessage('Total enabled weight must be greater than zero.');
+        return;
+      }
+
+      const seen = new Set<string>();
+      for (const allocation of payloadAllocations) {
+        if (seen.has(allocation.strategyId)) {
+          setPortfolioErrorMessage('Each strategy can only appear once.');
+          return;
+        }
+        seen.add(allocation.strategyId);
+      }
+
+      setPortfolioSaving(true);
+      const res = await fetch('/api/client/portfolio', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allocations: payloadAllocations }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.error || 'Failed to update portfolio');
+      }
+      await refreshPortfolio();
+      setPortfolioSuccessMessage('Portfolio updated successfully.');
+      setPortfolioDirty(false);
+      setPortfolioEditing(false);
+    } catch (err) {
+      setPortfolioErrorMessage(err instanceof Error ? err.message : 'Failed to update portfolio');
+    } finally {
+      setPortfolioSaving(false);
+    }
+  }, [portfolioDraft, portfolioDirty, portfolioEditing, refreshPortfolio, portfolioAllocations, allocationToDraft]);
 
   async function handleSetMevKey() {
     const input = typeof window !== 'undefined' ? window.prompt('Enter your MEV private key (0x...)') : null;
@@ -1130,6 +1434,287 @@ export default function Dashboard() {
             ))}
           </div>
 
+          <Card style={{ display: 'grid', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <Badge tone="primary">Strategy Portfolio</Badge>
+                <h2 style={{ margin: '0.75rem 0 0' }}>Allocation overview</h2>
+                <p style={{ color: '#94A3B8', margin: 0 }}>
+                  Total active weight: {totalPortfolioWeight.toFixed(1)}%
+                  {portfolioPlan?.normalized ? ' (auto-normalised)' : ''}
+                </p>
+              </div>
+              <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                {portfolioEditing ? (
+                  <>
+                    <Button variant="ghost" onClick={handlePortfolioAdd} disabled={portfolioSaving || !availableStrategyOptions.length}>
+                      Add strategy
+                    </Button>
+                    <Button variant="ghost" onClick={handlePortfolioReset} disabled={portfolioSaving}>
+                      Reset
+                    </Button>
+                    <Button variant="ghost" onClick={cancelPortfolioEditing} disabled={portfolioSaving}>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={handlePortfolioSave}
+                      disabled={portfolioSaving || !portfolioDirty}
+                    >
+                      {portfolioSaving ? 'Saving…' : 'Save changes'}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    onClick={() => (portfolioAllocations.length || availableStrategyOptions.length ? startPortfolioEditing() : null)}
+                    disabled={!portfolioAllocations.length && !availableStrategyOptions.length}
+                  >
+                    Edit allocations
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {portfolioSuccessMessage ? (
+              <Card elevation="none" glass style={{ border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.1)' }}>
+                {portfolioSuccessMessage}
+              </Card>
+            ) : null}
+            {portfolioErrorMessage ? (
+              <Card elevation="none" glass style={{ border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(127,29,29,0.25)' }}>
+                {portfolioErrorMessage}
+              </Card>
+            ) : null}
+
+            {portfolioEditing ? (
+              <div style={{ display: 'grid', gap: '1rem' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 540 }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', color: '#94A3B8', fontSize: '0.75rem' }}>
+                        <th style={{ paddingBottom: '0.45rem' }}>Strategy</th>
+                        <th style={{ paddingBottom: '0.45rem' }}>Weight %</th>
+                        <th style={{ paddingBottom: '0.45rem' }}>Run mode</th>
+                        <th style={{ paddingBottom: '0.45rem' }}>Max risk %</th>
+                        <th style={{ paddingBottom: '0.45rem' }}>Enabled</th>
+                        <th style={{ paddingBottom: '0.45rem' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {portfolioDraft.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ padding: '0.75rem 0', color: '#94A3B8', textAlign: 'center' }}>
+                            No strategies allocated yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        portfolioDraft.map((row, index) => {
+                          const used = new Set(
+                            portfolioDraft
+                              .filter((_, idx) => idx !== index)
+                              .map((allocation) => allocation.strategyId)
+                          );
+                          const strategyMeta = strategyMetaById.get(row.strategyId);
+                          const runModeOptions = [
+                            { value: '', label: 'Auto' },
+                            ...(strategyMeta?.supportsLive ? [{ value: 'live', label: 'Live' }] : []),
+                            ...(strategyMeta?.supportsPaper ? [{ value: 'paper', label: 'Paper' }] : []),
+                            { value: 'summary', label: 'Summary' },
+                          ];
+                          return (
+                            <tr key={`${row.strategyId}-${index}`} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                              <td style={{ padding: '0.55rem 0.4rem' }}>
+                                <select
+                                  value={row.strategyId}
+                                  onChange={(event) => handlePortfolioFieldChange(index, 'strategyId', event.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.45rem 0.6rem',
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(148,163,184,0.2)',
+                                    background: 'rgba(8,13,25,0.8)',
+                                    color: '#E2E8F0',
+                                  }}
+                                >
+                                  {availableStrategyOptions.map((strategy) => (
+                                    <option
+                                      key={strategy.id}
+                                      value={strategy.id}
+                                      disabled={used.has(strategy.id) && strategy.id !== row.strategyId}
+                                    >
+                                      {strategy.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td style={{ padding: '0.55rem 0.4rem' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.1"
+                                  value={row.weightPct}
+                                  onChange={(event) => handlePortfolioFieldChange(index, 'weightPct', event.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.45rem 0.6rem',
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(148,163,184,0.2)',
+                                    background: 'rgba(8,13,25,0.8)',
+                                    color: '#E2E8F0',
+                                  }}
+                                />
+                              </td>
+                              <td style={{ padding: '0.55rem 0.4rem' }}>
+                                <select
+                                  value={row.runMode}
+                                  onChange={(event) => handlePortfolioFieldChange(index, 'runMode', event.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.45rem 0.6rem',
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(148,163,184,0.2)',
+                                    background: 'rgba(8,13,25,0.8)',
+                                    color: '#E2E8F0',
+                                  }}
+                                >
+                                  {runModeOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td style={{ padding: '0.55rem 0.4rem' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.1"
+                                  value={row.maxRiskPct}
+                                  onChange={(event) => handlePortfolioFieldChange(index, 'maxRiskPct', event.target.value)}
+                                  placeholder="Optional"
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.45rem 0.6rem',
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(148,163,184,0.2)',
+                                    background: 'rgba(8,13,25,0.8)',
+                                    color: '#E2E8F0',
+                                  }}
+                                />
+                              </td>
+                              <td style={{ padding: '0.55rem 0.4rem' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={row.enabled}
+                                  onChange={(event) => handlePortfolioFieldChange(index, 'enabled', event.target.checked)}
+                                />
+                              </td>
+                              <td style={{ padding: '0.55rem 0.4rem', textAlign: 'right' }}>
+                                <Button variant="ghost" onClick={() => handlePortfolioRemove(index)}>
+                                  Remove
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ display: 'grid', gap: '0.35rem', color: '#94A3B8', fontSize: '0.85rem' }}>
+                  <span>Total enabled weight: {totalDraftWeight.toFixed(1)}%</span>
+                  <span>
+                    Plan normalized: {portfolioPlan?.normalized ? 'Yes' : 'No'} · Active plan weight:{' '}
+                    {planActiveWeight.toFixed(1)}%
+                  </span>
+                </div>
+                <div style={{ borderTop: '1px solid rgba(148,163,184,0.15)', paddingTop: '0.85rem' }}>
+                  <h3 style={{ margin: 0, fontSize: '1rem' }}>Execution preview</h3>
+                  {planEntries.length ? (
+                    <div style={{ overflowX: 'auto', marginTop: '0.65rem' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 540 }}>
+                        <thead>
+                          <tr style={{ textAlign: 'left', color: '#94A3B8', fontSize: '0.75rem' }}>
+                            <th style={{ paddingBottom: '0.35rem' }}>Strategy</th>
+                            <th style={{ paddingBottom: '0.35rem' }}>Final mode</th>
+                            <th style={{ paddingBottom: '0.35rem' }}>Normalized %</th>
+                            <th style={{ paddingBottom: '0.35rem' }}>Allocation USD</th>
+                            <th style={{ paddingBottom: '0.35rem' }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {planEntries.map((entry) => (
+                            <tr key={entry.strategyId} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                              <td style={{ padding: '0.5rem 0.4rem' }}>{strategyMetaById.get(entry.strategyId)?.name ?? entry.strategyId}</td>
+                              <td style={{ padding: '0.5rem 0.4rem' }}>{entry.finalRunMode}</td>
+                              <td style={{ padding: '0.5rem 0.4rem' }}>{entry.normalizedWeightPct.toFixed(1)}%</td>
+                              <td style={{ padding: '0.5rem 0.4rem' }}>
+                                {entry.allocationUsd ? `$${entry.allocationUsd.toFixed(2)}` : '—'}
+                              </td>
+                              <td style={{ padding: '0.5rem 0.4rem', color: entry.enabled ? '#34D399' : '#F87171' }}>
+                                {entry.enabled ? entry.reason ?? 'Active' : entry.reason ?? 'Disabled'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ margin: '0.75rem 0', color: '#94A3B8' }}>No execution preview available.</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+                {portfolioAllocations.length ? (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
+                      <thead>
+                        <tr style={{ textAlign: 'left', color: '#94A3B8', fontSize: '0.8rem' }}>
+                          <th style={{ paddingBottom: '0.5rem' }}>Strategy</th>
+                          <th style={{ paddingBottom: '0.5rem' }}>Weight %</th>
+                          <th style={{ paddingBottom: '0.5rem' }}>Run mode</th>
+                          <th style={{ paddingBottom: '0.5rem' }}>Allocation (USD)</th>
+                          <th style={{ paddingBottom: '0.5rem' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {portfolioAllocations.map((allocation) => {
+                          const planEntry = portfolioPlanByStrategy.get(allocation.strategyId);
+                          const strategyMeta = strategyMetaById.get(allocation.strategyId);
+                          const strategyName = strategyMeta?.name ?? allocation.strategyId;
+                          const finalMode = planEntry?.finalRunMode ?? allocation.runMode ?? 'live';
+                          const allocationUsd = planEntry?.allocationUsd ?? 0;
+                          const statusLabel = allocation.enabled
+                            ? planEntry?.reason
+                              ? `Paused (${planEntry.reason})`
+                              : 'Active'
+                            : 'Disabled';
+                          return (
+                            <tr key={allocation.strategyId} style={{ borderTop: '1px solid rgba(148,163,184,0.15)' }}>
+                              <td style={{ padding: '0.65rem 0' }}>{strategyName}</td>
+                              <td style={{ padding: '0.65rem 0' }}>{allocation.weightPct.toFixed(1)}%</td>
+                              <td style={{ padding: '0.65rem 0' }}>{finalMode}</td>
+                              <td style={{ padding: '0.65rem 0' }}>
+                                {allocationUsd ? `$${allocationUsd.toFixed(2)}` : '—'}
+                              </td>
+                              <td style={{ padding: '0.65rem 0', color: allocation.enabled ? '#34D399' : '#F87171' }}>{statusLabel}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p style={{ color: '#94A3B8', margin: 0 }}>
+                    No portfolio allocations yet. Click “Edit allocations” to add your first strategy weight.
+                  </p>
+                )}
+              </>
+            )}
+          </Card>
+
           {strategies.length ? (
             <Card style={{ display: 'grid', gap: '1.25rem' }}>
               <div>
@@ -1436,6 +2021,24 @@ export default function Dashboard() {
                       >
                         {isCurrent ? 'Manage billing' : isDowngrade ? 'Downgrade' : 'Upgrade'}
                       </Button>
+                      {isCurrent ? (
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <Button
+                            variant="ghost"
+                            onClick={() => handleCancelMembership(false)}
+                            disabled={processingCancellation || processingCheckout}
+                          >
+                            {processingCancellation ? 'Cancelling…' : 'Cancel membership'}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() => handleCancelMembership(true)}
+                            disabled={processingCancellation || processingCheckout}
+                          >
+                            Schedule cancellation
+                          </Button>
+                        </div>
+                      ) : null}
                     </Card>
                   );
                 })}

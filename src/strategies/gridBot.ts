@@ -99,6 +99,8 @@ export type GridPlan = {
     basePrecision: number;
     minNotional: number | null;
     regime?: any;
+    portfolioAllocationUsd?: number | null;
+    portfolioWeightPct?: number | null;
   };
   plannedExposureUsd: number;
 };
@@ -1497,6 +1499,7 @@ export interface RunGridOptions {
   runMode?: 'summary' | 'paper' | 'live';
   summaryOnly?: boolean;
   actor?: string;
+  configOverrides?: Record<string, unknown>;
 }
 
 export async function runGridOnce(
@@ -1519,6 +1522,15 @@ export async function runGridOnce(
   });
   setLogContext({ clientId, actor: options.actor });
   const clientProfile = await clientConfigService.getClientProfile(clientId);
+  const overrides = options.configOverrides ?? {};
+  const allocationUsdOverride =
+    typeof overrides.portfolioAllocationUsd === 'number' && Number.isFinite(overrides.portfolioAllocationUsd)
+      ? Number(overrides.portfolioAllocationUsd)
+      : null;
+  const portfolioWeightPctOverride =
+    typeof overrides.portfolioWeightPct === 'number' && Number.isFinite(overrides.portfolioWeightPct)
+      ? Number(overrides.portfolioWeightPct)
+      : null;
   const summaryOnly = options.summaryOnly ?? (process.env.SUMMARY_ONLY || '').toLowerCase() === 'true';
   const runMode: GridPlan['runMode'] =
     options.runMode ?? (summaryOnly ? 'summary' : CONFIG.PAPER_MODE ? 'paper' : 'live');
@@ -1641,7 +1653,10 @@ export async function runGridOnce(
   const baseGridSizePct = Number(process.env.GRID_SIZE_PCT) || 0.02;
   const perTradeUsdEnv = process.env.PER_TRADE_USD;
   const perTradePctEnv = process.env.PER_TRADE;
-  const bankrollUsd = clientProfile.risk.bankrollUsd;
+  let bankrollUsd = clientProfile.risk.bankrollUsd;
+  if (allocationUsdOverride && allocationUsdOverride > 0) {
+    bankrollUsd = Math.min(allocationUsdOverride, bankrollUsd);
+  }
   const defaultPerTradePct = clientProfile.risk.maxPerTradePct;
   let perTradeUsdOrig =
     perTradeUsdEnv !== undefined
@@ -1792,6 +1807,8 @@ export async function runGridOnce(
       basePrecision,
       minNotional: minNotional ?? null,
       regime: regimeAnalysis,
+      portfolioAllocationUsd: allocationUsdOverride,
+      portfolioWeightPct: portfolioWeightPctOverride,
     },
     plannedExposureUsd,
   };

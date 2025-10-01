@@ -10,6 +10,7 @@ import {
   ClientApiCredentialsRepository,
   ClientStrategySecretsRepository,
 } from '../db/clientsRepo';
+import { ClientStrategyAllocationsRepository } from '../db/clientStrategyAllocationsRepo';
 import { ClientConfigService } from '../services/clientConfig';
 import { initSecretManager } from '../secrets/secretManager';
 import { ClientAuditLogRepository } from '../db/auditLogRepo';
@@ -24,6 +25,9 @@ import {
   storeClientCredentials,
   upsertClientRecord,
   deleteStrategySecretRecord,
+  listClientStrategyAllocations,
+  replaceClientStrategyAllocations,
+  deleteClientStrategyAllocation,
 } from './clientAdminActions';
 import { ethers } from 'ethers';
 import { enqueuePaperRun, isPaperRunQueueEnabled } from '../jobs/paperRunQueue';
@@ -35,10 +39,12 @@ import {
   handleStripeWebhook,
   syncCheckoutSession,
   verifyStripeSignature,
+  cancelClientSubscription,
 } from '../services/billing/stripeService';
 import { logger } from '../utils/logger';
 import { ClientAgreementsRepository } from '../db/clientAgreementsRepo';
 import { listStrategies, getStrategyDefinition, ensureStrategySupportsRunMode, checkStrategyRequirements } from '../strategies/registry';
+import { buildPortfolioExecutionPlan } from '../services/portfolio/portfolioManager';
 import { getChatService } from '../chat/chatService';
 import type { StrategyId, StrategyRunMode } from '../strategies/types';
 import type { PlanId } from '../config/planTypes';
@@ -157,6 +163,7 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
   const clientsRepo = new ClientsRepository(pool);
   const credsRepo = new ClientApiCredentialsRepository(pool);
   const strategySecretsRepo = new ClientStrategySecretsRepository(pool);
+  const strategyAllocationsRepo = new ClientStrategyAllocationsRepository(pool);
   const configService = new ClientConfigService(pool);
   const auditRepo = new ClientAuditLogRepository(pool);
   const workersRepo = new ClientWorkersRepository(pool);
@@ -319,6 +326,27 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
           returnUrl,
         });
         sendJson(res, 200, { url: portal.url });
+        return;
+      }
+
+      if (ctx.pathname === '/billing/cancel' && ctx.method === 'POST') {
+        const body = ctx.body ?? {};
+        const clientId = body.clientId ?? body.client_id;
+        if (!clientId) {
+          throw new Error('client_id_required');
+        }
+        const cancelAtPeriodEnd = Boolean(body.cancelAtPeriodEnd ?? body.cancel_at_period_end ?? false);
+        const result = await cancelClientSubscription({ clientId, cancelAtPeriodEnd }, clientsRepo);
+        await auditRepo.addEntry({
+          clientId,
+          actor: resolveActor(ctx.req),
+          action: cancelAtPeriodEnd ? 'billing_cancel_queued' : 'billing_cancelled',
+          metadata: {
+            cancelAtPeriodEnd: result.cancelAtPeriodEnd,
+            subscriptionId: result.subscriptionId,
+          },
+        });
+        sendJson(res, 200, result);
         return;
       }
 
@@ -828,6 +856,71 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
             metadata: {
               exchange: exchangeName,
             },
+          });
+          sendJson(res, 204, {});
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const portfolioMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/portfolio$/);
+      if (portfolioMatch) {
+        const clientId = decodeURIComponent(portfolioMatch[1]);
+        if (ctx.method === 'GET' || ctx.method === 'PUT') {
+          const allocationsPayload = ctx.method === 'PUT' ? (ctx.body?.allocations ?? ctx.body ?? []) : [];
+          let allocations;
+          if (ctx.method === 'PUT') {
+            allocations = await replaceClientStrategyAllocations(strategyAllocationsRepo, clientId, allocationsPayload);
+            await auditRepo.addEntry({
+              clientId,
+              actor: resolveActor(ctx.req),
+              action: 'portfolio_updated',
+              metadata: { allocationCount: allocations.length },
+            });
+          } else {
+            allocations = await listClientStrategyAllocations(strategyAllocationsRepo, clientId);
+          }
+
+          let plan: any = null;
+          try {
+            const clientConfig = await configService.getClientConfig(clientId);
+            plan = buildPortfolioExecutionPlan(clientConfig);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            logger.warn('portfolio_plan_build_failed', {
+              event: 'portfolio_plan_build_failed',
+              clientId,
+              error: message,
+            });
+          }
+
+          const totalWeightPct = allocations
+            .filter((allocation) => allocation.enabled !== false)
+            .reduce((sum, allocation) => sum + allocation.weightPct, 0);
+
+          sendJson(res, 200, {
+            allocations,
+            totalWeightPct,
+            plan,
+          });
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const portfolioDeleteMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/portfolio\/([^/]+)$/);
+      if (portfolioDeleteMatch) {
+        const clientId = decodeURIComponent(portfolioDeleteMatch[1]);
+        const strategyId = decodeURIComponent(portfolioDeleteMatch[2]);
+        if (ctx.method === 'DELETE') {
+          await deleteClientStrategyAllocation(strategyAllocationsRepo, clientId, strategyId as any);
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'portfolio_strategy_removed',
+            metadata: { strategyId },
           });
           sendJson(res, 204, {});
           return;

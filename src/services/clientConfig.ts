@@ -9,6 +9,8 @@ import {
   ClientStrategySecretUpsert,
   ClientStrategySecretsRepository,
 } from '../db/clientsRepo';
+import { ClientStrategyAllocationsRepository } from '../db/clientStrategyAllocationsRepo';
+import type { StrategyId, StrategyRunMode } from '../strategies/types';
 import { decryptSecret, encryptSecret, initSecretManager } from '../secrets/secretManager';
 
 function toNumber(value: unknown, fallback: number): number {
@@ -63,6 +65,7 @@ export interface ClientConfig {
   limits: ClientLimits;
   guard: GuardLimits;
   operations: OperationalLimits;
+  portfolio: StrategyPortfolioConfig;
 }
 
 export interface GuardLimits {
@@ -81,6 +84,20 @@ export interface OperationalLimits {
   paperOnly?: boolean;
   allowedExchanges?: string[] | null;
   maxDailyVolumeUsd?: number;
+}
+
+export interface StrategyAllocationConfig {
+  strategyId: StrategyId;
+  weightPct: number;
+  maxRiskPct?: number | null;
+  runMode?: StrategyRunMode | null;
+  enabled: boolean;
+  config?: Record<string, unknown> | null;
+}
+
+export interface StrategyPortfolioConfig {
+  allocations: StrategyAllocationConfig[];
+  totalWeightPct: number;
 }
 
 export interface ClientConfigServiceOptions {
@@ -197,6 +214,7 @@ export class ClientConfigService {
   private readonly clientsRepo: ClientsRepository;
   private readonly credentialsRepo: ClientApiCredentialsRepository;
   private readonly strategySecretsRepo: ClientStrategySecretsRepository;
+  private readonly strategyAllocationsRepo: ClientStrategyAllocationsRepository;
   private readonly allowedClientId?: string;
   private readonly defaultExchange: string;
 
@@ -204,6 +222,7 @@ export class ClientConfigService {
     this.clientsRepo = new ClientsRepository(pool);
     this.credentialsRepo = new ClientApiCredentialsRepository(pool);
     this.strategySecretsRepo = new ClientStrategySecretsRepository(pool);
+    this.strategyAllocationsRepo = new ClientStrategyAllocationsRepository(pool);
     this.allowedClientId = opts.allowedClientId;
     this.defaultExchange = opts.defaultExchange ?? CONFIG.DEFAULT_EXCHANGE;
   }
@@ -267,6 +286,8 @@ export class ClientConfigService {
     const apiSecret = decryptSecret(credentialsRow.apiSecretEnc);
     const passphrase = credentialsRow.passphraseEnc ? decryptSecret(credentialsRow.passphraseEnc) : null;
 
+    const portfolio = await this.getStrategyPortfolio(clientId);
+
     return {
       client: profile.client,
       limits: profile.limits,
@@ -280,6 +301,7 @@ export class ClientConfigService {
         passphrase,
         row: credentialsRow,
       },
+      portfolio,
     };
   }
 
@@ -337,5 +359,27 @@ export class ClientConfigService {
   async deleteStrategySecret(clientId: string, strategyId: string) {
     this.ensureAllowed(clientId);
     await this.strategySecretsRepo.delete(clientId, strategyId);
+  }
+
+  async getStrategyPortfolio(clientId: string): Promise<StrategyPortfolioConfig> {
+    const rows = await this.strategyAllocationsRepo.listByClient(clientId);
+    if (!rows.length) {
+      return { allocations: [], totalWeightPct: 0 };
+    }
+
+    const allocations: StrategyAllocationConfig[] = rows.map((row) => ({
+      strategyId: row.strategyId,
+      weightPct: Number(row.weightPct),
+      maxRiskPct: row.maxRiskPct,
+      runMode: row.runMode ?? undefined,
+      enabled: row.enabled,
+      config: row.configJson ?? undefined,
+    }));
+
+    const totalWeightPct = allocations
+      .filter((allocation) => allocation.enabled)
+      .reduce((sum, allocation) => sum + allocation.weightPct, 0);
+
+    return { allocations, totalWeightPct };
   }
 }

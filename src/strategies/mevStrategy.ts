@@ -103,6 +103,7 @@ export async function runMevBot(ctx: StrategyRunContext) {
       fundingStatus,
       balanceEth: preflight.balanceEth,
       walletAddress: preflight.walletAddress,
+      portfolioAllocationUsd: ctx.config?.portfolioAllocationUsd ?? null,
     });
   }
 
@@ -116,6 +117,8 @@ export async function runMevBot(ctx: StrategyRunContext) {
       note: 'MEV bot run skipped for non-live mode; preflight completed.',
       config: envConfig.summary,
       preflight: preflightLog,
+      portfolioAllocationUsd: ctx.config?.portfolioAllocationUsd ?? null,
+      portfolioWeightPct: ctx.config?.portfolioWeightPct ?? null,
     });
     return;
   }
@@ -129,6 +132,8 @@ export async function runMevBot(ctx: StrategyRunContext) {
     pair: ctx.pair,
     config: envConfig.summary,
     preflight: preflightLog,
+    portfolioAllocationUsd: ctx.config?.portfolioAllocationUsd ?? null,
+    portfolioWeightPct: ctx.config?.portfolioWeightPct ?? null,
   });
 
   await new Promise<void>((resolve, reject) => {

@@ -51,6 +51,57 @@ interface SummaryResponse {
   data: SummaryRow[];
 }
 
+interface StrategyCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  supportsPaper: boolean;
+  supportsLive: boolean;
+}
+
+interface PortfolioAllocationSummary {
+  strategyId: string;
+  weightPct: number;
+  maxRiskPct?: number | null;
+  runMode?: string | null;
+  enabled: boolean;
+  config?: Record<string, unknown> | null;
+  updatedAt: string;
+}
+
+interface PortfolioPlanEntry {
+  strategyId: string;
+  requestedRunMode: string;
+  finalRunMode: string;
+  weightPct: number;
+  normalizedWeightPct: number;
+  bankrollUsd: number;
+  allocationUsd: number;
+  maxRiskUsd?: number | null;
+  enabled: boolean;
+  reason?: string | null;
+}
+
+interface PortfolioPlanSummary {
+  entries?: PortfolioPlanEntry[];
+  totalRequestedWeightPct?: number;
+  normalized?: boolean;
+}
+
+interface PortfolioResponse {
+  allocations: PortfolioAllocationSummary[];
+  totalWeightPct: number;
+  plan?: PortfolioPlanSummary | null;
+}
+
+interface PortfolioAllocationForm {
+  strategyId: string;
+  weightPct: string;
+  maxRiskPct: string;
+  runMode: string;
+  enabled: boolean;
+}
+
 function formatDate(value: string | null) {
   if (!value) return '—';
   return new Date(value).toLocaleString();
@@ -60,21 +111,32 @@ export default function AdminDashboard() {
   const { data: session } = useSession();
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [billing, setBilling] = useState<BillingRow[]>([]);
+  const [strategyCatalog, setStrategyCatalog] = useState<StrategyCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedSummaryView, setSelectedSummaryView] = useState('');
   const [selectedBillingView, setSelectedBillingView] = useState('');
+  const [selectedPortfolioClient, setSelectedPortfolioClient] = useState('');
+  const [portfolioAllocations, setPortfolioAllocations] = useState<PortfolioAllocationSummary[]>([]);
+  const [portfolioPlan, setPortfolioPlan] = useState<PortfolioPlanSummary | null>(null);
+  const [portfolioDraft, setPortfolioDraft] = useState<PortfolioAllocationForm[]>([]);
+  const [portfolioDirty, setPortfolioDirty] = useState(false);
+  const [portfolioSaving, setPortfolioSaving] = useState(false);
+  const [portfolioMessage, setPortfolioMessage] = useState<string | null>(null);
+  const [portfolioError, setPortfolioError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [summaryRes, billingRes] = await Promise.all([
+      const [summaryRes, billingRes, strategiesRes] = await Promise.all([
         fetchJson<SummaryResponse>('/api/admin/summary'),
         fetchJson<BillingRow[]>('/api/admin/billing'),
+        fetchJson<StrategyCatalogEntry[]>('/api/admin/strategies'),
       ]);
       setSummary(summaryRes);
       setBilling(billingRes);
+      setStrategyCatalog(strategiesRes);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load admin dashboard');
@@ -83,11 +145,66 @@ export default function AdminDashboard() {
     }
   }, []);
 
+  const loadClientPortfolio = useCallback(
+    async (clientId: string) => {
+      if (!clientId) return;
+      try {
+        setPortfolioError(null);
+        setPortfolioMessage(null);
+        const portfolio = await fetchJson<PortfolioResponse>(
+          `/api/admin/clients/${encodeURIComponent(clientId)}/portfolio`
+        );
+        setPortfolioAllocations(portfolio?.allocations ?? []);
+        setPortfolioPlan(portfolio?.plan ?? null);
+        setPortfolioDraft(
+          (portfolio?.allocations ?? []).map((allocation) => ({
+            strategyId: allocation.strategyId,
+            weightPct: allocation.weightPct.toString(),
+            maxRiskPct:
+              allocation.maxRiskPct != null && Number.isFinite(allocation.maxRiskPct)
+                ? allocation.maxRiskPct.toString()
+                : '',
+            runMode: allocation.runMode ?? '',
+            enabled: allocation.enabled,
+          }))
+        );
+        setPortfolioDirty(false);
+      } catch (err) {
+        setPortfolioAllocations([]);
+        setPortfolioPlan(null);
+        setPortfolioDraft([]);
+        setPortfolioDirty(false);
+        setPortfolioError(err instanceof Error ? err.message : 'Failed to load portfolio');
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 60_000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  useEffect(() => {
+    if (!summary?.data?.length) return;
+    if (!selectedPortfolioClient) {
+      setSelectedPortfolioClient(summary.data[0].id);
+    }
+  }, [summary, selectedPortfolioClient]);
+
+  useEffect(() => {
+    if (selectedPortfolioClient) {
+      loadClientPortfolio(selectedPortfolioClient);
+    } else {
+      setPortfolioAllocations([]);
+      setPortfolioPlan(null);
+      setPortfolioDraft([]);
+      setPortfolioDirty(false);
+      setPortfolioError(null);
+      setPortfolioMessage(null);
+    }
+  }, [selectedPortfolioClient, loadClientPortfolio]);
 
   const trendPoints = useMemo(() => {
     if (!summary?.data?.length) return null;
@@ -227,6 +344,172 @@ export default function AdminDashboard() {
     ],
     []
   );
+
+  const totalDraftWeight = useMemo(() => {
+    return portfolioDraft
+      .filter((row) => row.enabled)
+      .reduce((sum, row) => sum + (Number(row.weightPct) || 0), 0);
+  }, [portfolioDraft]);
+
+  const planEntries = useMemo(() => portfolioPlan?.entries ?? [], [portfolioPlan]);
+
+  const planActiveWeight = useMemo(() => {
+    return planEntries.filter((entry) => entry.enabled).reduce((sum, entry) => sum + entry.normalizedWeightPct, 0);
+  }, [planEntries]);
+
+  const formatStrategyName = useCallback(
+    (strategyId: string) => {
+      const match = strategyCatalog.find((entry) => entry.id === strategyId);
+      return match?.name ?? strategyId;
+    },
+    [strategyCatalog]
+  );
+
+  const updateDraft = useCallback((index: number, updater: (prev: PortfolioAllocationForm) => PortfolioAllocationForm) => {
+    setPortfolioDraft((prev) => {
+      const next = [...prev];
+      next[index] = updater(next[index]);
+      return next;
+    });
+    setPortfolioDirty(true);
+    setPortfolioMessage(null);
+    setPortfolioError(null);
+  }, []);
+
+  const handlePortfolioClientChange = (value: string) => {
+    setSelectedPortfolioClient(value);
+    setPortfolioMessage(null);
+    setPortfolioError(null);
+  };
+
+  const handleAllocationFieldChange = (index: number, field: keyof PortfolioAllocationForm, value: string | boolean) => {
+    updateDraft(index, (prev) => ({
+      ...prev,
+      [field]: field === 'enabled' ? Boolean(value) : String(value),
+    }));
+  };
+
+  const handleRemoveAllocation = (index: number) => {
+    setPortfolioDraft((prev) => prev.filter((_, idx) => idx !== index));
+    setPortfolioDirty(true);
+    setPortfolioMessage(null);
+  };
+
+  const handleAddAllocation = () => {
+    if (!strategyCatalog.length) {
+      setPortfolioError('No strategies available to allocate.');
+      return;
+    }
+    const used = new Set(portfolioDraft.map((row) => row.strategyId));
+    const candidate = strategyCatalog.find((entry) => !used.has(entry.id)) ?? strategyCatalog[0];
+    setPortfolioDraft((prev) => [
+      ...prev,
+      {
+        strategyId: candidate.id,
+        weightPct: '0',
+        maxRiskPct: '',
+        runMode: '',
+        enabled: true,
+      },
+    ]);
+    setPortfolioDirty(true);
+    setPortfolioMessage(null);
+  };
+
+  const handleResetPortfolio = () => {
+    if (selectedPortfolioClient) {
+      loadClientPortfolio(selectedPortfolioClient);
+    }
+  };
+
+  const handleSavePortfolio = async () => {
+    if (!selectedPortfolioClient) {
+      setPortfolioError('Select a client before saving.');
+      return;
+    }
+    const payloadAllocations = portfolioDraft.map((row) => ({
+      strategyId: row.strategyId,
+      weightPct: Number(row.weightPct),
+      maxRiskPct: row.maxRiskPct ? Number(row.maxRiskPct) : null,
+      runMode: row.runMode ? row.runMode : null,
+      enabled: row.enabled,
+    }));
+
+    for (const allocation of payloadAllocations) {
+      if (!allocation.strategyId) {
+        setPortfolioError('Each allocation must specify a strategy.');
+        return;
+      }
+      if (!Number.isFinite(allocation.weightPct) || allocation.weightPct < 0) {
+        setPortfolioError('Weights must be non-negative numbers.');
+        return;
+      }
+      if (
+        allocation.maxRiskPct != null &&
+        (!Number.isFinite(allocation.maxRiskPct) || allocation.maxRiskPct < 0)
+      ) {
+        setPortfolioError('Risk caps must be non-negative numbers.');
+        return;
+      }
+      if (allocation.runMode && !['live', 'paper', 'summary'].includes(allocation.runMode)) {
+        setPortfolioError('Run mode must be live, paper, or summary.');
+        return;
+      }
+    }
+
+    const enabledWeight = payloadAllocations
+      .filter((allocation) => allocation.enabled)
+      .reduce((sum, allocation) => sum + allocation.weightPct, 0);
+    if (enabledWeight <= 0) {
+      setPortfolioError('Total enabled weight must be greater than zero.');
+      return;
+    }
+
+    const seen = new Set<string>();
+    for (const allocation of payloadAllocations) {
+      if (seen.has(allocation.strategyId)) {
+        setPortfolioError('Each strategy can only appear once.');
+        return;
+      }
+      seen.add(allocation.strategyId);
+    }
+
+    setPortfolioSaving(true);
+    setPortfolioMessage(null);
+    setPortfolioError(null);
+    try {
+      const res = await fetch(`/api/admin/clients/${encodeURIComponent(selectedPortfolioClient)}/portfolio`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allocations: payloadAllocations }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.error || 'Failed to update portfolio');
+      }
+      const data = (await res.json()) as PortfolioResponse;
+      setPortfolioAllocations(data.allocations ?? []);
+      setPortfolioPlan(data.plan ?? null);
+      setPortfolioDraft(
+        (data.allocations ?? []).map((allocation) => ({
+          strategyId: allocation.strategyId,
+          weightPct: allocation.weightPct.toString(),
+          maxRiskPct:
+            allocation.maxRiskPct != null && Number.isFinite(allocation.maxRiskPct)
+              ? allocation.maxRiskPct.toString()
+              : '',
+          runMode: allocation.runMode ?? '',
+          enabled: allocation.enabled,
+        }))
+      );
+      setPortfolioDirty(false);
+      setPortfolioMessage('Portfolio updated successfully.');
+    } catch (err) {
+      setPortfolioError(err instanceof Error ? err.message : 'Failed to update portfolio');
+    } finally {
+      setPortfolioSaving(false);
+    }
+  };
 
   const summaryTable = useTableControls(summary?.data ?? [], {
     columns: summaryColumns,
@@ -429,6 +712,238 @@ export default function AdminDashboard() {
               />
             ))}
           </div>
+
+          <Card style={{ display: 'grid', gap: '1rem' }}>
+            <div>
+              <Badge tone="primary">Portfolio controls</Badge>
+              <h2 style={{ margin: '0.75rem 0 0' }}>Edit strategy allocations</h2>
+              <p style={{ color: '#94A3B8', margin: 0 }}>
+                Adjust weights, risk caps, and run modes for each client. Changes apply on the next job dispatch.
+              </p>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+              <label style={{ fontSize: '0.85rem', color: '#94A3B8' }}>
+                Client
+                <select
+                  value={selectedPortfolioClient}
+                  onChange={(event) => handlePortfolioClientChange(event.target.value)}
+                  style={{
+                    display: 'block',
+                    minWidth: 220,
+                    marginTop: '0.35rem',
+                    padding: '0.55rem 0.75rem',
+                    borderRadius: 10,
+                    border: '1px solid rgba(148,163,184,0.2)',
+                    background: 'rgba(8,13,25,0.75)',
+                    color: '#E2E8F0',
+                  }}
+                >
+                  <option value="">Select client</option>
+                  {summary?.data?.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.id} · {row.plan}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                <Button variant="ghost" onClick={handleAddAllocation} disabled={!selectedPortfolioClient || !strategyCatalog.length}>
+                  Add allocation
+                </Button>
+                <Button variant="ghost" onClick={handleResetPortfolio} disabled={!selectedPortfolioClient || portfolioSaving}>
+                  Reset
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleSavePortfolio}
+                  disabled={!selectedPortfolioClient || portfolioSaving || !portfolioDirty}
+                >
+                  {portfolioSaving ? 'Saving…' : 'Save changes'}
+                </Button>
+              </div>
+            </div>
+            {portfolioMessage ? (
+              <Card elevation="none" glass style={{ border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.1)' }}>
+                {portfolioMessage}
+              </Card>
+            ) : null}
+            {portfolioError ? (
+              <Card elevation="none" glass style={{ border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(127,29,29,0.25)' }}>
+                {portfolioError}
+              </Card>
+            ) : null}
+            {selectedPortfolioClient ? (
+              <div style={{ display: 'grid', gap: '1rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: '#94A3B8', fontSize: '0.8rem' }}>
+                      <th style={{ paddingBottom: '0.45rem' }}>Strategy</th>
+                      <th style={{ paddingBottom: '0.45rem' }}>Weight %</th>
+                      <th style={{ paddingBottom: '0.45rem' }}>Run mode</th>
+                      <th style={{ paddingBottom: '0.45rem' }}>Max risk %</th>
+                      <th style={{ paddingBottom: '0.45rem' }}>Enabled</th>
+                      <th style={{ paddingBottom: '0.45rem' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {portfolioDraft.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={{ padding: '0.75rem 0', color: '#94A3B8', textAlign: 'center' }}>
+                          No allocations configured yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      portfolioDraft.map((row, index) => {
+                        const used = new Set(
+                          portfolioDraft
+                            .filter((_, idx) => idx !== index)
+                            .map((allocation) => allocation.strategyId)
+                        );
+                        return (
+                          <tr key={`${row.strategyId}-${index}`} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                            <td style={{ padding: '0.6rem 0.4rem' }}>
+                              <select
+                                value={row.strategyId}
+                                onChange={(event) => handleAllocationFieldChange(index, 'strategyId', event.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.45rem 0.6rem',
+                                  borderRadius: 8,
+                                  border: '1px solid rgba(148,163,184,0.2)',
+                                  background: 'rgba(8,13,25,0.8)',
+                                  color: '#E2E8F0',
+                                }}
+                              >
+                                {strategyCatalog.map((strategy) => (
+                                  <option
+                                    key={strategy.id}
+                                    value={strategy.id}
+                                    disabled={used.has(strategy.id) && strategy.id !== row.strategyId}
+                                  >
+                                    {strategy.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td style={{ padding: '0.6rem 0.4rem' }}>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={row.weightPct}
+                                onChange={(event) => handleAllocationFieldChange(index, 'weightPct', event.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.45rem 0.6rem',
+                                  borderRadius: 8,
+                                  border: '1px solid rgba(148,163,184,0.2)',
+                                  background: 'rgba(8,13,25,0.8)',
+                                  color: '#E2E8F0',
+                                }}
+                              />
+                            </td>
+                            <td style={{ padding: '0.6rem 0.4rem' }}>
+                              <select
+                                value={row.runMode}
+                                onChange={(event) => handleAllocationFieldChange(index, 'runMode', event.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.45rem 0.6rem',
+                                  borderRadius: 8,
+                                  border: '1px solid rgba(148,163,184,0.2)',
+                                  background: 'rgba(8,13,25,0.8)',
+                                  color: '#E2E8F0',
+                                }}
+                              >
+                                <option value="">Auto</option>
+                                <option value="live">Live</option>
+                                <option value="paper">Paper</option>
+                                <option value="summary">Summary</option>
+                              </select>
+                            </td>
+                            <td style={{ padding: '0.6rem 0.4rem' }}>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={row.maxRiskPct}
+                                onChange={(event) => handleAllocationFieldChange(index, 'maxRiskPct', event.target.value)}
+                                placeholder="Optional"
+                                style={{
+                                  width: '100%',
+                                  padding: '0.45rem 0.6rem',
+                                  borderRadius: 8,
+                                  border: '1px solid rgba(148,163,184,0.2)',
+                                  background: 'rgba(8,13,25,0.8)',
+                                  color: '#E2E8F0',
+                                }}
+                              />
+                            </td>
+                            <td style={{ padding: '0.6rem 0.4rem' }}>
+                              <input
+                                type="checkbox"
+                                checked={row.enabled}
+                                onChange={(event) => handleAllocationFieldChange(index, 'enabled', event.target.checked)}
+                              />
+                            </td>
+                            <td style={{ padding: '0.6rem 0.4rem', textAlign: 'right' }}>
+                              <Button variant="ghost" onClick={() => handleRemoveAllocation(index)}>
+                                Remove
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                <div style={{ display: 'grid', gap: '0.35rem', color: '#94A3B8', fontSize: '0.85rem' }}>
+                  <span>Total enabled weight: {totalDraftWeight.toFixed(1)}%</span>
+                  <span>
+                    Plan normalized: {portfolioPlan?.normalized ? 'Yes' : 'No'} · Active plan weight:{' '}
+                    {planActiveWeight.toFixed(1)}%
+                  </span>
+                </div>
+                <div style={{ borderTop: '1px solid rgba(148,163,184,0.15)', paddingTop: '0.85rem' }}>
+                  <h3 style={{ margin: 0, fontSize: '1rem' }}>Execution preview</h3>
+                  {planEntries.length ? (
+                    <div style={{ overflowX: 'auto', marginTop: '0.65rem' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 540 }}>
+                        <thead>
+                          <tr style={{ textAlign: 'left', color: '#94A3B8', fontSize: '0.75rem' }}>
+                            <th style={{ paddingBottom: '0.35rem' }}>Strategy</th>
+                            <th style={{ paddingBottom: '0.35rem' }}>Final mode</th>
+                            <th style={{ paddingBottom: '0.35rem' }}>Normalized %</th>
+                            <th style={{ paddingBottom: '0.35rem' }}>Allocation USD</th>
+                            <th style={{ paddingBottom: '0.35rem' }}>Reason</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {planEntries.map((entry) => (
+                            <tr key={entry.strategyId} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                              <td style={{ padding: '0.5rem 0.4rem' }}>{formatStrategyName(entry.strategyId)}</td>
+                              <td style={{ padding: '0.5rem 0.4rem' }}>{entry.finalRunMode}</td>
+                              <td style={{ padding: '0.5rem 0.4rem' }}>{entry.normalizedWeightPct.toFixed(1)}%</td>
+                              <td style={{ padding: '0.5rem 0.4rem' }}>
+                                {entry.allocationUsd ? `$${entry.allocationUsd.toFixed(2)}` : '—'}
+                              </td>
+                              <td style={{ padding: '0.5rem 0.4rem', color: entry.enabled ? '#34D399' : '#F87171' }}>
+                                {entry.enabled ? entry.reason ?? 'Active' : entry.reason ?? 'Disabled'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ margin: '0.75rem 0', color: '#94A3B8' }}>No execution preview available.</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p style={{ color: '#94A3B8', margin: 0 }}>Select a client to configure portfolio allocations.</p>
+            )}
+          </Card>
 
           <Card style={{ display: 'grid', gap: '1rem' }}>
             <div>

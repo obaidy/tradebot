@@ -18,6 +18,8 @@ import {
   clientWorkerStatusGauge,
 } from '../telemetry/metrics';
 import { decryptSecret, initSecretManager } from '../secrets/secretManager';
+import { ClientConfigService } from '../services/clientConfig';
+import { buildPortfolioExecutionPlan } from '../services/portfolio/portfolioManager';
 
 const HEARTBEAT_INTERVAL_MS = ms('15s');
 
@@ -52,6 +54,7 @@ async function main() {
   const clientsRepo = new ClientsRepository(pool);
   const strategySecretsRepo = new ClientStrategySecretsRepository(pool);
   const workersRepo = new ClientWorkersRepository(pool);
+  const configService = new ClientConfigService(pool, { allowedClientId: clientId });
 
   await workersRepo.upsert({
     workerId,
@@ -163,7 +166,54 @@ async function main() {
             });
             break;
           }
-          const runMode = (payload.runMode as StrategyRunMode) ?? (strategy.supportsPaper ? 'paper' : 'live');
+          const requestedRunMode = (payload.runMode as StrategyRunMode) ?? (strategy.supportsPaper ? 'paper' : 'live');
+          let portfolioEntry:
+            | {
+                finalRunMode: StrategyRunMode;
+                normalizedWeightPct: number;
+                enabled: boolean;
+                allocationUsd: number;
+                reason?: string;
+              }
+            | null = null;
+          try {
+            const clientConfig = await configService.getClientConfig(clientId);
+            const portfolioPlan = buildPortfolioExecutionPlan(clientConfig);
+            const found = portfolioPlan.entries.find((entry) => entry.strategyId === requestedStrategy);
+            if (found) {
+              portfolioEntry = {
+                finalRunMode: found.finalRunMode,
+                normalizedWeightPct: found.normalizedWeightPct,
+                enabled: found.enabled,
+                reason: found.reason,
+                allocationUsd: found.allocationUsd,
+              };
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            logger.warn('portfolio_plan_unavailable', {
+              event: 'portfolio_plan_unavailable',
+              clientId,
+              workerId,
+              strategyId: requestedStrategy,
+              jobId: job.id,
+              error: message,
+            });
+          }
+
+          if (portfolioEntry && (!portfolioEntry.enabled || portfolioEntry.normalizedWeightPct <= 0)) {
+            logger.info('portfolio_entry_skipped', {
+              event: 'portfolio_entry_skipped',
+              clientId,
+              workerId,
+              strategyId: requestedStrategy,
+              jobId: job.id,
+              reason: portfolioEntry.reason ?? 'disabled_or_zero_weight',
+            });
+            break;
+          }
+
+          const runMode = portfolioEntry ? portfolioEntry.finalRunMode : requestedRunMode;
           if (!ensureStrategySupportsRunMode(strategy, runMode)) {
             break;
           }
@@ -195,6 +245,14 @@ async function main() {
           if (!checkStrategyRequirements(strategy, { config: strategyConfig })) {
             break;
           }
+
+          if (portfolioEntry) {
+            strategyConfig = {
+              ...(strategyConfig ?? {}),
+              portfolioAllocationUsd: portfolioEntry.allocationUsd,
+              portfolioWeightPct: portfolioEntry.normalizedWeightPct,
+            };
+          }
           const pair = (payload.pair as string) || strategy.defaultPair;
           const actor = payload.actor as string | undefined;
 
@@ -207,6 +265,8 @@ async function main() {
             pair,
             runMode,
             jobId: job.id,
+            portfolioWeight: portfolioEntry ? portfolioEntry.normalizedWeightPct : null,
+            portfolioAllocationUsd: portfolioEntry ? portfolioEntry.allocationUsd : null,
           });
           await runStrategy(requestedStrategy, {
             clientId,
@@ -227,6 +287,8 @@ async function main() {
             planId,
             pair,
             jobId: job.id,
+            portfolioWeight: portfolioEntry ? portfolioEntry.normalizedWeightPct : null,
+            portfolioAllocationUsd: portfolioEntry ? portfolioEntry.allocationUsd : null,
           });
           break;
         }

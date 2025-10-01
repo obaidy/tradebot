@@ -9,5 +9,6 @@ export async function runGridStrategy(ctx: StrategyRunContext) {
     runMode,
     summaryOnly,
     actor: ctx.actor,
+    configOverrides: ctx.config,
   });
 }

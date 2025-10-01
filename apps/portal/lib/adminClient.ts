@@ -45,6 +45,10 @@ export async function fetchStrategies() {
   return adminRequest('/strategies');
 }
 
+export async function fetchStrategyCatalog() {
+  return adminRequest('/strategies');
+}
+
 export async function initClient(payload: {
   id: string;
   name: string;
@@ -162,6 +166,29 @@ export async function fetchWorkers(clientId: string) {
   return adminRequest(`/clients/${clientId}/workers`);
 }
 
+export async function fetchClientPortfolio(clientId: string) {
+  return adminRequest(`/clients/${clientId}/portfolio`);
+}
+
+export async function updateClientPortfolio(
+  clientId: string,
+  payload: { allocations: Array<Record<string, unknown>> },
+  actor: string
+) {
+  return adminRequest(`/clients/${clientId}/portfolio`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+    actor,
+  });
+}
+
+export async function deleteClientPortfolioStrategy(clientId: string, strategyId: string, actor: string) {
+  return adminRequest(`/clients/${clientId}/portfolio/${strategyId}`, {
+    method: 'DELETE',
+    actor,
+  });
+}
+
 export async function pauseClient(clientId: string, actor: string) {
   return adminRequest(`/clients/${clientId}/pause`, {
     method: 'POST',
@@ -233,6 +260,21 @@ export async function listBillingStatus() {
 
 export async function fetchAdminSummary() {
   return adminRequest('/metrics/summary');
+}
+
+export async function cancelSubscriptionForClient(payload: {
+  clientId: string;
+  actor: string;
+  cancelAtPeriodEnd?: boolean;
+}) {
+  return adminRequest('/billing/cancel', {
+    method: 'POST',
+    body: JSON.stringify({
+      clientId: payload.clientId,
+      cancelAtPeriodEnd: payload.cancelAtPeriodEnd ?? false,
+    }),
+    actor: payload.actor,
+  });
 }
 
 export async function fetchClientHistory(clientId: string) {

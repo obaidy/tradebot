@@ -37,6 +37,19 @@ const MIGRATION_QUERIES: string[] = [
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (client_id, strategy_id)
     );`,
+  `CREATE TABLE IF NOT EXISTS client_strategy_allocations (
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      strategy_id TEXT NOT NULL,
+      weight_pct NUMERIC NOT NULL,
+      max_risk_pct NUMERIC,
+      run_mode TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      config_json JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (client_id, strategy_id)
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_client_strategy_allocations_client ON client_strategy_allocations(client_id);`,
   `CREATE TABLE IF NOT EXISTS bot_runs (
       run_id TEXT PRIMARY KEY,
       owner TEXT NOT NULL,
