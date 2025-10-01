@@ -40,6 +40,36 @@ export const pnlGauge = new Gauge({
   labelNames: ['client_id'] as const,
 });
 
+export const intelligenceCompositeGauge = new Gauge({
+  name: 'intelligence_composite_score',
+  help: 'Composite score emitted by the market intelligence engine',
+  labelNames: ['client_id', 'pair'] as const,
+});
+
+export const intelligenceRiskBiasGauge = new Gauge({
+  name: 'intelligence_risk_bias',
+  help: 'Risk stance suggested by the market intelligence engine (-1 reduce, 0 neutral, 1 increase)',
+  labelNames: ['client_id', 'pair'] as const,
+});
+
+export const intelligenceVolatilityGauge = new Gauge({
+  name: 'intelligence_garch_volatility',
+  help: 'GARCH-style volatility estimate from the intelligence engine',
+  labelNames: ['client_id', 'pair'] as const,
+});
+
+export const intelligencePerTradeGauge = new Gauge({
+  name: 'intelligence_per_trade_usd',
+  help: 'Per-trade USD allocation recommended by the intelligence engine',
+  labelNames: ['client_id', 'pair'] as const,
+});
+
+export const intelligenceTakeProfitGauge = new Gauge({
+  name: 'intelligence_take_profit_pct',
+  help: 'Take profit percentage recommended by the intelligence engine',
+  labelNames: ['client_id', 'pair'] as const,
+});
+
 export const inventoryGauge = new Gauge({
   name: 'inventory_base',
   help: 'Current base inventory levels',
@@ -95,6 +125,11 @@ export function resetMetrics() {
   orderLatency.reset();
   apiErrorCounter.reset();
   pnlGauge.reset();
+  intelligenceCompositeGauge.reset();
+  intelligenceRiskBiasGauge.reset();
+  intelligenceVolatilityGauge.reset();
+  intelligencePerTradeGauge.reset();
+  intelligenceTakeProfitGauge.reset();
   inventoryGauge.reset();
   clientQueueDepthGauge.reset();
   clientWorkerStatusGauge.reset();

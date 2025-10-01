@@ -11,6 +11,28 @@ import { runMigrations } from '../db/migrations';
 import { RunsRepository, OrdersRepository, FillsRepository, InventoryRepository } from '../db/repositories';
 import { reconcileOpenOrders } from '../services/reconciliation';
 import { analyzeRegime } from '../analytics/regime';
+import {
+  MarketIntelligenceEngine,
+  IntelligenceSummary,
+  MarketMicrostructureSnapshot,
+  NewsSentimentProvider,
+} from '../analytics/intelligence';
+import {
+  CryptoCompareNewsSentimentProvider,
+  CoinDeskNewsSentimentProvider,
+} from '../services/intelligence/newsProvider';
+import {
+  GlassnodeOnChainMetricsProvider,
+  PlaceholderOnChainMetricsProvider,
+} from '../services/intelligence/onChainProvider';
+import { RecentPerformanceService, RecentPerformanceMetrics } from '../services/performance/recentPerformance';
+import {
+  intelligenceCompositeGauge,
+  intelligenceRiskBiasGauge,
+  intelligenceVolatilityGauge,
+  intelligencePerTradeGauge,
+  intelligenceTakeProfitGauge,
+} from '../telemetry/metrics';
 import { orderReplacementCounter, orderCancelCounter, fillCounter, orderLatency } from '../telemetry/metrics';
 import { circuitBreaker } from '../guard/circuitBreaker';
 import { killSwitch } from '../guard/killSwitch';
@@ -60,6 +82,51 @@ const FALLBACK_FEE_PCT = 0.0004; // 0.04%
 
 export type PlannedSummary = ReturnType<typeof summarizePlanned>;
 
+const newsSentimentCategories = (process.env.NEWS_SENTIMENT_CATEGORIES || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const cryptoCompareNewsProvider = process.env.CRYPTOCOMPARE_API_KEY
+  ? new CryptoCompareNewsSentimentProvider({
+      apiKey: process.env.CRYPTOCOMPARE_API_KEY,
+      categories: newsSentimentCategories,
+    })
+  : null;
+
+const coinDeskNewsProvider = new CoinDeskNewsSentimentProvider({
+  apiKey: process.env.COINDESK_API_KEY,
+});
+
+const cascadingNewsProvider: NewsSentimentProvider | undefined = (() => {
+  const providers: NewsSentimentProvider[] = [];
+  if (cryptoCompareNewsProvider) providers.push(cryptoCompareNewsProvider);
+  providers.push(coinDeskNewsProvider);
+  if (!providers.length) return undefined;
+  return {
+    async fetchLatestSentiment(pair: string) {
+      for (const provider of providers) {
+        try {
+          const result = await provider.fetchLatestSentiment(pair);
+          if (result) return result;
+        } catch (error) {
+          logger.debug('news_sentiment_provider_failed', {
+            event: 'news_sentiment_provider_failed',
+            provider: provider.constructor?.name ?? 'unknown',
+            pair,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return null;
+    },
+  };
+})();
+
+const onChainProviderInstance = process.env.GLASSNODE_API_KEY
+  ? new GlassnodeOnChainMetricsProvider({ apiKey: process.env.GLASSNODE_API_KEY })
+  : new PlaceholderOnChainMetricsProvider();
+
 export type PlannedTrade = {
   timestamp: string;
   pair: string;
@@ -102,6 +169,7 @@ export type GridPlan = {
     regime?: any;
     portfolioAllocationUsd?: number | null;
     portfolioWeightPct?: number | null;
+    intelligence?: IntelligenceSummary | null;
   };
   plannedExposureUsd: number;
 };
@@ -292,6 +360,63 @@ function captureMarketSnapshot(
     basePrecision: meta.basePrecision,
     minNotional: meta.minNotional,
   };
+}
+
+async function collectMicrostructureSnapshots(ex: any, pair: string, midFallback: number): Promise<MarketMicrostructureSnapshot[]> {
+  try {
+    const [orderBook, trades] = await Promise.all([
+      typeof ex.fetchOrderBook === 'function' ? ex.fetchOrderBook(pair, 10).catch(() => null) : Promise.resolve(null),
+      typeof ex.fetchTrades === 'function' ? ex.fetchTrades(pair, 25).catch(() => null) : Promise.resolve(null),
+    ]);
+
+    if (!orderBook || !orderBook.bids || !orderBook.asks) {
+      return [];
+    }
+
+    const bestBid = orderBook.bids.length ? Number(orderBook.bids[0][0]) : midFallback;
+    const bestAsk = orderBook.asks.length ? Number(orderBook.asks[0][0]) : midFallback;
+    const bidVolume = orderBook.bids.slice(0, 5).reduce((sum: number, lvl: [number, number]) => sum + Number(lvl[1]), 0);
+    const askVolume = orderBook.asks.slice(0, 5).reduce((sum: number, lvl: [number, number]) => sum + Number(lvl[1]), 0);
+
+    let tradesBuyVolume = 0;
+    let tradesSellVolume = 0;
+    if (Array.isArray(trades)) {
+      for (const trade of trades) {
+        const amount = Number(trade.amount ?? trade.qty ?? 0);
+        if (!Number.isFinite(amount) || amount <= 0) continue;
+        const side = typeof trade.side === 'string' ? trade.side.toLowerCase() : '';
+        if (side === 'buy') tradesBuyVolume += amount;
+        else if (side === 'sell') tradesSellVolume += amount;
+        else if (trade.takerOrMaker === 'maker') tradesSellVolume += amount;
+        else if (trade.takerOrMaker === 'taker') tradesBuyVolume += amount;
+      }
+    }
+
+    return [
+      {
+        bid: Number.isFinite(bestBid) ? bestBid : midFallback,
+        ask: Number.isFinite(bestAsk) ? bestAsk : midFallback,
+        bidVolume,
+        askVolume,
+        tradesBuyVolume,
+        tradesSellVolume,
+        timestamp: Date.now(),
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function riskStanceToNumber(st: IntelligenceSummary['regime']['suggestedRiskStance']): number {
+  switch (st) {
+    case 'increase':
+      return 1;
+    case 'decrease':
+      return -1;
+    default:
+      return 0;
+  }
 }
 
 type ExchangeExecution = {
@@ -1548,6 +1673,11 @@ export async function runGridOnce(
   const sharedLimiter = getClientRateLimiter(clientId, baseOrderRateInterval);
   const streamingMonitorEnabled =
     CONFIG.STREAMING.ENABLED && (clientProfile.exchangeId || '').toLowerCase() === 'binance';
+  const intelligenceEnabled = (process.env.ENABLE_MARKET_INTELLIGENCE || 'true').toLowerCase() === 'true';
+  let intelligenceEngine: MarketIntelligenceEngine | null = null;
+  let intelligenceSummary: IntelligenceSummary | null = null;
+  let takeProfitOverride: number | null = null;
+  let performanceMetrics: RecentPerformanceMetrics | null = null;
   const detachTickerListener = streamingMonitorEnabled
     ? binanceStreamingGateway.onTicker(pair, (snapshot) => {
         const latencyMs = snapshot.source === 'ws' ? Date.now() - snapshot.receivedAt : null;
@@ -1773,6 +1903,15 @@ export async function runGridOnce(
         });
       }
     }
+    if (intelligenceEnabled) {
+      const performanceService = new RecentPerformanceService(pool, clientId);
+      performanceMetrics = await performanceService.getRecentPerformance({
+        pair,
+        maxRuns: Number(process.env.INTELLIGENCE_PERFORMANCE_RUNS || 20),
+        lookbackDays: Number(process.env.INTELLIGENCE_PERFORMANCE_LOOKBACK_DAYS || 30),
+      });
+    }
+
     if (candles && candles.length > 0 && closes.length > 0) {
       regimeAnalysis = analyzeRegime(candles as any, closes, mid, fundingRate);
       adjustedGridSteps = Math.max(1, Math.round(baseGridSteps * regimeAnalysis.adjustments.gridStepsMultiplier));
@@ -1785,6 +1924,86 @@ export async function runGridOnce(
         metrics: regimeAnalysis.metrics,
         adjustments: regimeAnalysis.adjustments,
       });
+    }
+
+    if (intelligenceEnabled && candles && candles.length >= 60) {
+      const minPerTrade = Math.max(25, perTradeUsdOrig * 0.3);
+      const maxPerTrade = operations.maxPerTradeUsd
+        ? Math.min(operations.maxPerTradeUsd, perTradeUsdOrig * 2.5)
+        : perTradeUsdOrig * 2.5;
+      intelligenceEngine = new MarketIntelligenceEngine({
+        constraints: {
+          minGridSteps: Math.max(2, Math.floor(baseGridSteps * 0.5)),
+          maxGridSteps: Math.min(80, Math.floor(baseGridSteps * 2)),
+          minGridSizePct: Math.max(0.001, baseGridSizePct * 0.5),
+          maxGridSizePct: Math.min(0.25, baseGridSizePct * 2.5),
+          minTakeProfitPct: 0.004,
+          maxTakeProfitPct: 0.25,
+          minPerTradeUsd: Math.min(minPerTrade, maxPerTrade),
+          maxPerTradeUsd: Math.max(maxPerTrade, minPerTrade),
+        },
+        newsProvider: cascadingNewsProvider,
+        onChainProvider: onChainProviderInstance,
+      });
+
+      const microstructure = await collectMicrostructureSnapshots(ex, pair, mid).catch(() => []);
+      intelligenceSummary = await intelligenceEngine.generateInsights({
+        pair,
+        candles: candles as any,
+        midPrice: mid,
+        baseParameters: {
+          gridSteps: adjustedGridSteps,
+          gridSizePct: adjustedGridSizePct,
+          takeProfitPct: Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02,
+          perTradeUsd: perTradeUsdOrig,
+        },
+        windowResults: performanceMetrics?.pnlSeries ?? undefined,
+        drawdowns: performanceMetrics?.drawdowns ?? undefined,
+        microstructure,
+        fundingRates: fundingRate !== null && fundingRate !== undefined ? [fundingRate] : undefined,
+      });
+
+      adjustedGridSteps = intelligenceSummary.optimized.gridSteps;
+      adjustedGridSizePct = intelligenceSummary.optimized.gridSizePct;
+      perTradeUsdOrig = intelligenceSummary.optimized.perTradeUsd;
+      takeProfitOverride = intelligenceSummary.optimized.takeProfitPct;
+
+      const performanceSnapshot = performanceMetrics
+        ? {
+            runsAnalyzed: performanceMetrics.runIds.length,
+            avgPnl: performanceMetrics.pnlSeries.length
+              ? performanceMetrics.pnlSeries.reduce((s, v) => s + v, 0) / performanceMetrics.pnlSeries.length
+              : 0,
+            maxDrawdown: performanceMetrics.drawdowns.length
+              ? Math.min(...performanceMetrics.drawdowns)
+              : 0,
+          }
+        : null;
+
+      logger.info('market_intelligence_insights', {
+        event: 'market_intelligence_insights',
+        pair,
+        regimeCompositeScore: intelligenceSummary.regime.compositeScore,
+        riskStance: intelligenceSummary.regime.suggestedRiskStance,
+        predictive: intelligenceSummary.predictive,
+        optimized: intelligenceSummary.optimized,
+        evolved: intelligenceSummary.evolved,
+        score: intelligenceSummary.score,
+        performance: performanceSnapshot ?? undefined,
+      });
+
+      intelligenceCompositeGauge.labels(clientId, pair).set(intelligenceSummary.regime.compositeScore);
+      intelligenceRiskBiasGauge.labels(clientId, pair).set(riskStanceToNumber(intelligenceSummary.regime.suggestedRiskStance));
+      intelligenceVolatilityGauge.labels(clientId, pair).set(intelligenceSummary.regime.garchVolatility);
+      intelligencePerTradeGauge.labels(clientId, pair).set(intelligenceSummary.optimized.perTradeUsd);
+      intelligenceTakeProfitGauge.labels(clientId, pair).set(intelligenceSummary.optimized.takeProfitPct);
+    } else if (intelligenceEnabled) {
+      intelligenceCompositeGauge.labels(clientId, pair).set(0);
+      intelligenceRiskBiasGauge.labels(clientId, pair).set(0);
+      intelligenceVolatilityGauge.labels(clientId, pair).set(0);
+      intelligencePerTradeGauge.labels(clientId, pair).set(perTradeUsdOrig);
+      const tpCandidate = Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02;
+      intelligenceTakeProfitGauge.labels(clientId, pair).set(tpCandidate);
     }
   } catch (err) {
     logger.warn('regime_analysis_failed', {
@@ -1885,6 +2104,7 @@ export async function runGridOnce(
       regime: regimeAnalysis,
       portfolioAllocationUsd: allocationUsdOverride,
       portfolioWeightPct: portfolioWeightPctOverride,
+      intelligence: intelligenceSummary,
     },
     plannedExposureUsd,
   };
@@ -2088,7 +2308,18 @@ export async function runGridOnce(
       return plan;
     }
 
-    const takeProfitPct = Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02;
+    const envTakeProfit = Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT);
+    let takeProfitPct = Number.isFinite(envTakeProfit) && envTakeProfit > 0 ? envTakeProfit : 0.02;
+    if (takeProfitOverride !== null) {
+      takeProfitPct = takeProfitOverride;
+      logger.info('take_profit_override_applied', {
+        event: 'take_profit_override_applied',
+        runId: plan.runId,
+        pair,
+        takeProfitPct,
+      });
+    }
+    takeProfitPct = Math.max(0.003, Math.min(0.3, takeProfitPct));
 
     if (runMode === 'paper') {
       for (const lvl of plan.buyLevels) {
