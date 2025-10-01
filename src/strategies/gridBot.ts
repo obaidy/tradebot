@@ -21,6 +21,7 @@ import { retry } from '../utils/retry';
 import { startSpan } from '../telemetry/tracing';
 import { ClientConfigService } from '../services/clientConfig';
 import { getRealtimeTicker } from '../services/marketData/realtimeTicker';
+import { binanceStreamingGateway, StreamingSymbolHealth } from '../services/streaming/binanceGateway';
 
 type ExchangeOrder = {
   id?: string;
@@ -423,9 +424,7 @@ export async function executeBuyLevels(context: OrderExecutionContext) {
   const replaceMaxRetries = Number(process.env.REPLACE_MAX_RETRIES || DEFAULT_REPLACE_MAX_RETRIES);
 
   const limiterIntervalMs = Math.max(0, rateIntervalMs);
-  if (context.limiter) {
-    context.limiter.updateInterval(limiterIntervalMs);
-  } else {
+  if (!context.limiter) {
     context.limiter = getClientRateLimiter(context.clientId, limiterIntervalMs);
   }
   context.metrics = context.metrics ?? {
@@ -864,7 +863,12 @@ async function placeAndMonitorOrder(
           },
         }
       );
-      circuitBreaker.recordTicker(ticker.timestamp ?? Date.now());
+      circuitBreaker.recordTicker({
+        timestamp: ticker.timestamp ?? Date.now(),
+        source: ticker.source ?? null,
+        latencyMs: ticker.latencyMs ?? null,
+        symbol: pair,
+      });
       circuitBreaker.checkStaleData();
       const basePriceCandidate = typeof ticker.bid === 'number'
         ? ticker.bid
@@ -1212,7 +1216,12 @@ async function monitorSellOrder(params: {
           },
         }
       );
-      circuitBreaker.recordTicker(ticker.timestamp ?? Date.now());
+      circuitBreaker.recordTicker({
+        timestamp: ticker.timestamp ?? Date.now(),
+        source: ticker.source ?? null,
+        latencyMs: ticker.latencyMs ?? null,
+        symbol: context.pair,
+      });
       circuitBreaker.checkStaleData();
       const basePriceCandidate = typeof ticker.ask === 'number'
         ? ticker.ask
@@ -1535,6 +1544,68 @@ export async function runGridOnce(
   const runMode: GridPlan['runMode'] =
     options.runMode ?? (summaryOnly ? 'summary' : CONFIG.PAPER_MODE ? 'paper' : 'live');
   circuitBreaker.configureForClient(clientProfile.guard, clientId);
+  const baseOrderRateInterval = Math.max(0, Number(process.env.ORDER_RATE_INTERVAL_MS || DEFAULT_ORDER_RATE_INTERVAL_MS));
+  const sharedLimiter = getClientRateLimiter(clientId, baseOrderRateInterval);
+  const streamingMonitorEnabled =
+    CONFIG.STREAMING.ENABLED && (clientProfile.exchangeId || '').toLowerCase() === 'binance';
+  const detachTickerListener = streamingMonitorEnabled
+    ? binanceStreamingGateway.onTicker(pair, (snapshot) => {
+        const latencyMs = snapshot.source === 'ws' ? Date.now() - snapshot.receivedAt : null;
+        circuitBreaker.recordTicker({
+          timestamp: snapshot.eventTime,
+          source: snapshot.source,
+          latencyMs,
+          symbol: pair,
+        });
+      })
+    : null;
+  let lastLimiterInterval = sharedLimiter.getIntervalMs();
+  const adjustLimiterForHealth = (maybeHealth?: StreamingSymbolHealth) => {
+    if (!streamingMonitorEnabled) return;
+    const health = maybeHealth ?? binanceStreamingGateway.getSymbolHealth(pair);
+    let targetInterval = Math.max(baseOrderRateInterval, 80);
+    switch (health.status) {
+      case 'healthy': {
+        if (health.avgLatencyMs !== null && health.avgLatencyMs < 150) {
+          targetInterval = Math.max(50, Math.round(baseOrderRateInterval * 0.6));
+        } else {
+          targetInterval = Math.max(80, Math.round(baseOrderRateInterval * 0.8));
+        }
+        break;
+      }
+      case 'degraded': {
+        const degradeBase = Math.max(baseOrderRateInterval, 150);
+        targetInterval = Math.round(degradeBase * 1.15);
+        break;
+      }
+      case 'stale':
+      case 'disconnected': {
+        const staleThreshold = Math.max(CONFIG.STREAMING.STALE_TICKER_MS, baseOrderRateInterval || 1);
+        targetInterval = Math.max(staleThreshold, baseOrderRateInterval);
+        break;
+      }
+      default:
+        targetInterval = baseOrderRateInterval;
+    }
+    if (targetInterval !== lastLimiterInterval) {
+      sharedLimiter.updateInterval(targetInterval);
+      lastLimiterInterval = targetInterval;
+      logger.debug('order_rate_interval_adjusted', {
+        event: 'order_rate_interval_adjusted',
+        pair,
+        clientId,
+        status: health.status,
+        targetInterval,
+        avgLatencyMs: health.avgLatencyMs ?? undefined,
+      });
+    }
+  };
+  const detachHealthListener = streamingMonitorEnabled
+    ? binanceStreamingGateway.onSymbolHealth(pair, adjustLimiterForHealth)
+    : null;
+  if (streamingMonitorEnabled) {
+    adjustLimiterForHealth(binanceStreamingGateway.getSymbolHealth(pair));
+  }
   const operations = clientProfile.operations;
   if (!bypassPlanRestrictions) {
     if (runMode === 'live' && operations.paperOnly) {
@@ -1646,7 +1717,12 @@ export async function runGridOnce(
   const mid = (bidPrice + askPrice) / 2;
   const tickerBid = bidPrice;
   const tickerAsk = askPrice;
-  circuitBreaker.recordTicker(ticker.timestamp ?? Date.now());
+  circuitBreaker.recordTicker({
+    timestamp: ticker.timestamp ?? Date.now(),
+    source: ticker.source ?? null,
+    latencyMs: ticker.latencyMs ?? null,
+    symbol: pair,
+  });
   circuitBreaker.checkStaleData();
 
   const baseGridSteps = Number(process.env.GRID_STEPS) || 8;
@@ -2105,10 +2181,6 @@ export async function runGridOnce(
     await runsRepo.updateStatus({ runId: plan.runId, status: 'completed' });
     return plan;
   }
-  const sharedLimiter = getClientRateLimiter(
-    clientId,
-    Math.max(0, Number(process.env.ORDER_RATE_INTERVAL_MS || DEFAULT_ORDER_RATE_INTERVAL_MS))
-  );
   const executionContext: OrderExecutionContext = {
     clientId,
     exchange: ex as ExchangeExecution,
@@ -2176,6 +2248,12 @@ export async function runGridOnce(
   } finally {
     if (releaseLock) {
       releaseLock();
+    }
+    if (detachTickerListener) {
+      detachTickerListener();
+    }
+    if (detachHealthListener) {
+      detachHealthListener();
     }
   }
 }

@@ -3,7 +3,7 @@ import { logger } from '../../utils/logger';
 import { CONFIG } from '../../config';
 import { cacheService } from '../cacheService';
 
-type BookTickerSnapshot = {
+export type BookTickerSnapshot = {
   symbol: string;
   bidPrice: number;
   askPrice: number;
@@ -18,6 +18,20 @@ type BookTickerSnapshot = {
 type SnapshotWaiter = {
   resolve: (snapshot: BookTickerSnapshot | null) => void;
   timeout: NodeJS.Timeout;
+};
+
+type TickerListener = (snapshot: BookTickerSnapshot) => void;
+type SymbolHealthListener = (health: StreamingSymbolHealth) => void;
+
+export type StreamingSymbolHealthStatus = 'unknown' | 'healthy' | 'degraded' | 'stale' | 'disconnected';
+
+export type StreamingSymbolHealth = {
+  status: StreamingSymbolHealthStatus;
+  lastHeartbeatAt: number | null;
+  lastLatencyMs: number | null;
+  avgLatencyMs: number | null;
+  lastSource: 'ws' | 'rest' | null;
+  reconnectCount: number;
 };
 
 function now() {
@@ -43,12 +57,18 @@ export class BinanceStreamingGateway {
   private readonly subscribed = new Set<string>();
   private readonly snapshots = new Map<string, BookTickerSnapshot>();
   private readonly waiters = new Map<string, Set<SnapshotWaiter>>();
+  private readonly tickerListeners = new Map<string, Set<TickerListener>>();
+  private readonly symbolHealth = new Map<string, StreamingSymbolHealth>();
+  private readonly symbolHealthListeners = new Map<string, Set<SymbolHealthListener>>();
+  private readonly staleTimers = new Map<string, NodeJS.Timeout>();
+  private totalReconnects = 0;
   private requestId = 1;
 
   watchSymbol(rawSymbol: string) {
     const key = this.normalizeSymbol(rawSymbol);
     const nextCount = (this.watchers.get(key) ?? 0) + 1;
     this.watchers.set(key, nextCount);
+    this.ensureSymbolHealth(key);
     if (!CONFIG.STREAMING.ENABLED) return;
     this.ensureConnection();
     if (this.ws && this.ws.readyState === WebSocket.OPEN && !this.subscribed.has(key)) {
@@ -65,6 +85,7 @@ export class BinanceStreamingGateway {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.sendUnsubscribe([key]);
       }
+      this.clearSymbolHealth(key);
     } else {
       this.watchers.set(key, current - 1);
     }
@@ -73,6 +94,11 @@ export class BinanceStreamingGateway {
   getLatestTicker(rawSymbol: string): BookTickerSnapshot | null {
     const key = this.normalizeSymbol(rawSymbol);
     return this.snapshots.get(key) ?? null;
+  }
+
+  getSymbolHealth(rawSymbol: string): StreamingSymbolHealth {
+    const key = this.normalizeSymbol(rawSymbol);
+    return { ...this.ensureSymbolHealth(key) };
   }
 
   async waitForFreshTicker(rawSymbol: string, timeoutMs: number): Promise<BookTickerSnapshot | null> {
@@ -133,6 +159,8 @@ export class BinanceStreamingGateway {
       source: 'rest',
     };
     this.snapshots.set(key, snapshot);
+    this.recordSymbolHeartbeat(key, snapshot);
+    this.notifyTickerListeners(key, snapshot);
   }
 
   private ensureConnection() {
@@ -168,9 +196,13 @@ export class BinanceStreamingGateway {
       event: 'binance_stream_connected',
       url: CONFIG.STREAMING.BINANCE_WS_URL,
       subscriptions: this.watchers.size,
+      reconnects: this.totalReconnects,
     });
     this.resubscribeAll();
     this.startPing();
+    for (const symbol of this.watchers.keys()) {
+      this.updateSymbolHealth(symbol, { status: 'healthy' });
+    }
   }
 
   private handleMessage(data: RawData) {
@@ -221,6 +253,8 @@ export class BinanceStreamingGateway {
 
     this.snapshots.set(symbol, snapshot);
     this.resolveWaiters(symbol, snapshot);
+    this.recordSymbolHeartbeat(symbol, snapshot);
+    this.notifyTickerListeners(symbol, snapshot);
     this.cacheSnapshot(snapshot).catch(() => {});
   }
 
@@ -249,6 +283,10 @@ export class BinanceStreamingGateway {
     });
     this.cleanupSocket();
     this.scheduleReconnect();
+    this.totalReconnects += 1;
+    for (const symbol of this.watchers.keys()) {
+      this.updateSymbolHealth(symbol, { status: 'disconnected' });
+    }
   }
 
   private scheduleReconnect() {
@@ -354,6 +392,188 @@ export class BinanceStreamingGateway {
       clearTimeout(waiter.timeout);
     }
     this.waiters.delete(symbol);
+  }
+
+  onTicker(rawSymbol: string, listener: TickerListener): () => void {
+    const key = this.normalizeSymbol(rawSymbol);
+    let listeners = this.tickerListeners.get(key);
+    if (!listeners) {
+      listeners = new Set<TickerListener>();
+      this.tickerListeners.set(key, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      const current = this.tickerListeners.get(key);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) {
+        this.tickerListeners.delete(key);
+      }
+    };
+  }
+
+  onSymbolHealth(rawSymbol: string, listener: SymbolHealthListener): () => void {
+    const key = this.normalizeSymbol(rawSymbol);
+    let listeners = this.symbolHealthListeners.get(key);
+    if (!listeners) {
+      listeners = new Set<SymbolHealthListener>();
+      this.symbolHealthListeners.set(key, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      const current = this.symbolHealthListeners.get(key);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) {
+        this.symbolHealthListeners.delete(key);
+      }
+    };
+  }
+
+  private notifyTickerListeners(symbol: string, snapshot: BookTickerSnapshot) {
+    const listeners = this.tickerListeners.get(symbol);
+    if (!listeners || listeners.size === 0) return;
+    for (const listener of listeners) {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        logger.warn('binance_stream_listener_error', {
+          event: 'binance_stream_listener_error',
+          symbol,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  private notifySymbolHealthListeners(symbol: string, health: StreamingSymbolHealth) {
+    const listeners = this.symbolHealthListeners.get(symbol);
+    if (!listeners || listeners.size === 0) return;
+    for (const listener of listeners) {
+      try {
+        listener({ ...health });
+      } catch (error) {
+        logger.warn('binance_stream_health_listener_error', {
+          event: 'binance_stream_health_listener_error',
+          symbol,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  private recordSymbolHeartbeat(symbol: string, snapshot: BookTickerSnapshot) {
+    const latencyMs = snapshot.source === 'ws' ? now() - snapshot.receivedAt : null;
+    this.updateSymbolHealth(symbol, {
+      status: snapshot.source === 'ws' ? 'healthy' : 'degraded',
+      lastHeartbeatAt: snapshot.eventTime,
+      lastLatencyMs: latencyMs,
+      lastSource: snapshot.source,
+    });
+  }
+
+  private ensureSymbolHealth(symbol: string): StreamingSymbolHealth {
+    const existing = this.symbolHealth.get(symbol);
+    if (existing) {
+      return existing;
+    }
+    const health: StreamingSymbolHealth = {
+      status: 'unknown',
+      lastHeartbeatAt: null,
+      lastLatencyMs: null,
+      avgLatencyMs: null,
+      lastSource: null,
+      reconnectCount: 0,
+    };
+    this.symbolHealth.set(symbol, health);
+    return health;
+  }
+
+  private clearSymbolHealth(symbol: string) {
+    const timer = this.staleTimers.get(symbol);
+    if (timer) {
+      clearTimeout(timer);
+      this.staleTimers.delete(symbol);
+    }
+    this.symbolHealth.delete(symbol);
+    this.symbolHealthListeners.delete(symbol);
+  }
+
+  private updateSymbolHealth(symbol: string, update: Partial<StreamingSymbolHealth>) {
+    const health = this.ensureSymbolHealth(symbol);
+    let changed = false;
+
+    if (update.lastHeartbeatAt !== undefined) {
+      const nextHeartbeat = update.lastHeartbeatAt ?? null;
+      if (health.lastHeartbeatAt !== nextHeartbeat) {
+        health.lastHeartbeatAt = nextHeartbeat;
+        changed = true;
+      }
+    }
+
+    if (update.lastLatencyMs !== undefined) {
+      const nextLatency = update.lastLatencyMs ?? null;
+      if (health.lastLatencyMs !== nextLatency) {
+        health.lastLatencyMs = nextLatency;
+        if (nextLatency !== null) {
+          const avg = health.avgLatencyMs ?? nextLatency;
+          health.avgLatencyMs = Math.round((avg * 0.7 + nextLatency * 0.3) * 100) / 100;
+        }
+        changed = true;
+      }
+    }
+
+    if (update.lastSource !== undefined && health.lastSource !== update.lastSource) {
+      health.lastSource = update.lastSource ?? null;
+      changed = true;
+    }
+
+    if (update.status && health.status !== update.status) {
+      if (update.status === 'disconnected') {
+        health.reconnectCount += 1;
+      }
+      health.status = update.status;
+      changed = true;
+    }
+
+    const staleAfter = Math.max(CONFIG.STREAMING.STALE_TICKER_MS * 2, 3000);
+    const timer = this.staleTimers.get(symbol);
+    if (timer) {
+      clearTimeout(timer);
+    }
+    if (health.lastHeartbeatAt) {
+      const staleTimer = setTimeout(() => {
+        this.staleTimers.delete(symbol);
+        const current = this.symbolHealth.get(symbol);
+        if (!current || !current.lastHeartbeatAt) return;
+        if (now() - current.lastHeartbeatAt >= staleAfter) {
+          if (current.status !== 'stale') {
+            current.status = 'stale';
+            this.notifySymbolHealthListeners(symbol, current);
+            logger.warn('binance_stream_symbol_stale', {
+              event: 'binance_stream_symbol_stale',
+              symbol,
+              staleForMs: now() - current.lastHeartbeatAt,
+              lastSource: current.lastSource ?? undefined,
+            });
+          }
+        }
+      }, staleAfter);
+      this.staleTimers.set(symbol, staleTimer);
+    }
+
+    if (changed) {
+      this.notifySymbolHealthListeners(symbol, health);
+      logger.debug('binance_stream_symbol_health', {
+        event: 'binance_stream_symbol_health',
+        symbol,
+        status: health.status,
+        lastLatencyMs: health.lastLatencyMs ?? undefined,
+        avgLatencyMs: health.avgLatencyMs ?? undefined,
+        lastSource: health.lastSource ?? undefined,
+        reconnectCount: health.reconnectCount,
+      });
+    }
   }
 
   private async cacheSnapshot(snapshot: BookTickerSnapshot) {

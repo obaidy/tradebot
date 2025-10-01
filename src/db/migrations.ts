@@ -239,6 +239,10 @@ export async function runMigrations(pool: Pool) {
   await pool.query(`ALTER TABLE bot_fills ALTER COLUMN client_id SET NOT NULL`);
   await pool.query(`ALTER TABLE bot_inventory_snapshots ALTER COLUMN client_id SET NOT NULL`);
   await pool.query(`ALTER TABLE bot_guard_state ALTER COLUMN client_id SET NOT NULL`);
+  await pool.query(`ALTER TABLE bot_guard_state ADD COLUMN IF NOT EXISTS last_ticker_source TEXT`);
+  await pool.query(`ALTER TABLE bot_guard_state ADD COLUMN IF NOT EXISTS last_ticker_latency_ms INTEGER`);
+  await pool.query(`ALTER TABLE bot_guard_state ADD COLUMN IF NOT EXISTS last_ticker_symbol TEXT`);
+  await pool.query(`ALTER TABLE bot_guard_state ADD COLUMN IF NOT EXISTS last_ticker_recorded_at BIGINT`);
 
   const hasRunsFk = await pool.query(
     `SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_runs_client'`

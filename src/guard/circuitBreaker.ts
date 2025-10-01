@@ -4,6 +4,7 @@ import { GuardStateRepository, GuardState } from '../db/guardStateRepo';
 import { Notifier } from '../alerts/notifier';
 import { logger } from '../utils/logger';
 import { errorMessage } from '../utils/formatError';
+import { CONFIG } from '../config';
 
 export interface CircuitConfig {
   maxGlobalDrawdownUsd: number;
@@ -18,8 +19,19 @@ const DEFAULT_STATE: GuardState = {
   inventoryBase: 0,
   inventoryCost: 0,
   lastTickerTs: Date.now(),
+  lastTickerRecordedAt: Date.now(),
+  lastTickerSource: null,
+  lastTickerLatencyMs: null,
+  lastTickerSymbol: null,
   apiErrorTimestamps: [],
 };
+
+export interface TickerHeartbeat {
+  timestamp?: number | null;
+  source?: string | null;
+  latencyMs?: number | null;
+  symbol?: string | null;
+}
 
 export class CircuitBreaker {
   private state: GuardState = { ...DEFAULT_STATE };
@@ -67,12 +79,37 @@ export class CircuitBreaker {
   async resetRun() {
     if (!this.initialized || !this.repo) return;
     this.state.runPnl = 0;
+    const now = Date.now();
+    this.state.lastTickerTs = now;
+    this.state.lastTickerRecordedAt = now;
+    this.state.lastTickerLatencyMs = null;
+    this.state.lastTickerSource = null;
+    this.state.lastTickerSymbol = null;
     await this.persist();
   }
 
-  recordTicker(timestamp: number) {
+  recordTicker(heartbeat: TickerHeartbeat) {
     if (!this.initialized) return;
-    this.state.lastTickerTs = timestamp;
+    const now = Date.now();
+    const candidateTs = heartbeat.timestamp ?? now;
+    const normalizedTs = Number(candidateTs);
+    const effectiveTs = Number.isFinite(normalizedTs) && normalizedTs > 0 ? normalizedTs : now;
+    this.state.lastTickerTs = effectiveTs;
+    this.state.lastTickerRecordedAt = now;
+    if (heartbeat.source !== undefined) {
+      this.state.lastTickerSource = heartbeat.source ?? null;
+    }
+    if (heartbeat.symbol !== undefined) {
+      this.state.lastTickerSymbol = heartbeat.symbol ?? null;
+    }
+    if (heartbeat.latencyMs !== undefined) {
+      const normalizedLatency =
+        heartbeat.latencyMs === null || heartbeat.latencyMs === undefined
+          ? null
+          : Number(heartbeat.latencyMs);
+      this.state.lastTickerLatencyMs =
+        normalizedLatency !== null && Number.isFinite(normalizedLatency) ? normalizedLatency : null;
+    }
     this.persist().catch((error) => {
       logger.error('guard_state_persist_failed', {
         event: 'guard_state_persist_failed',
@@ -191,8 +228,15 @@ export class CircuitBreaker {
   checkStaleData() {
     if (!this.initialized) return;
     const now = Date.now();
-    if (now - this.state.lastTickerTs > this.activeConfig.staleTickerMs) {
-      const message = 'Market data stale';
+    const streamingConfiguredMs =
+      CONFIG.STREAMING.ENABLED && CONFIG.STREAMING.STALE_TICKER_MS > 0
+        ? CONFIG.STREAMING.STALE_TICKER_MS * 4
+        : Number.POSITIVE_INFINITY;
+    const threshold = Math.min(this.activeConfig.staleTickerMs, streamingConfiguredMs);
+    const lastHeartbeatTs = this.state.lastTickerRecordedAt || this.state.lastTickerTs;
+    if (now - lastHeartbeatTs > threshold) {
+      const staleForMs = now - lastHeartbeatTs;
+      const message = `Market data stale for ${Math.round(staleForMs)}ms`;
       killSwitch.activate(message, { clientId: this.clientId ?? undefined }).catch((error) => {
         logger.error('kill_switch_activation_failed', {
           event: 'kill_switch_activation_failed',
@@ -211,6 +255,15 @@ export class CircuitBreaker {
           });
         });
       }
+      logger.warn('market_data_stale_detected', {
+        event: 'market_data_stale_detected',
+        clientId: this.clientId ?? undefined,
+        staleForMs,
+        threshold,
+        lastTickerSource: this.state.lastTickerSource ?? undefined,
+        lastTickerLatencyMs: this.state.lastTickerLatencyMs ?? undefined,
+        lastTickerSymbol: this.state.lastTickerSymbol ?? undefined,
+      });
     }
   }
 
