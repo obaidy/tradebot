@@ -1015,11 +1015,6 @@ export default function Dashboard() {
     }
   }
 
-  const currentPlan = useMemo(
-    () => plans.find((plan) => plan.id === billingInfo.planId) ?? plans[0] ?? null,
-    [plans, billingInfo.planId]
-  );
-
   const planNameById = useMemo(() => {
     return plans.reduce<Map<string, string>>((acc, plan) => {
       acc.set(plan.id, plan.name);
@@ -1033,8 +1028,6 @@ export default function Dashboard() {
       return acc;
     }, new Map());
   }, [plans]);
-
-  const unlockedStrategyIds = useMemo(() => new Set(currentPlan?.strategies ?? []), [currentPlan]);
 
   const trialCountdown = useMemo(() => formatTrialCountdown(billingInfo.trialEndsAt), [billingInfo.trialEndsAt]);
 
