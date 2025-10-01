@@ -158,6 +158,19 @@ type PortfolioDraftRow = {
   enabled: boolean;
 };
 
+function draftAllocationFromPortfolio(allocation: PortfolioAllocation): PortfolioDraftRow {
+  return {
+    strategyId: allocation.strategyId,
+    weightPct: allocation.weightPct.toString(),
+    maxRiskPct:
+      allocation.maxRiskPct != null && Number.isFinite(allocation.maxRiskPct)
+        ? allocation.maxRiskPct.toString()
+        : '',
+    runMode: allocation.runMode ?? '',
+    enabled: allocation.enabled,
+  };
+}
+
 function formatDate(input: string) {
   return new Date(input).toLocaleString();
 }
@@ -342,6 +355,13 @@ export default function Dashboard() {
 
   const clientId = session?.user?.id;
   const actor = useMemo(() => session?.user?.email ?? clientId ?? 'unknown', [session?.user?.email, clientId]);
+
+  const currentPlan = useMemo(
+    () => plans.find((plan) => plan.id === billingInfo.planId) ?? plans[0] ?? null,
+    [plans, billingInfo.planId]
+  );
+
+  const unlockedStrategyIds = useMemo(() => new Set(currentPlan?.strategies ?? []), [currentPlan]);
 
   const requiredDocumentsStatus = useMemo(() => {
     return REQUIRED_DOCUMENTS.map((doc) => {
@@ -633,24 +653,13 @@ export default function Dashboard() {
     await refreshPortfolio();
   }
 
-  const allocationToDraft = useCallback((allocation: PortfolioAllocation): PortfolioDraftRow => ({
-    strategyId: allocation.strategyId,
-    weightPct: allocation.weightPct.toString(),
-    maxRiskPct:
-      allocation.maxRiskPct != null && Number.isFinite(allocation.maxRiskPct)
-        ? allocation.maxRiskPct.toString()
-        : '',
-    runMode: allocation.runMode ?? '',
-    enabled: allocation.enabled,
-  }), []);
-
   const refreshPortfolio = useCallback(async () => {
     try {
       const portfolio = await fetchJson('/api/client/portfolio');
       setPortfolioAllocations(portfolio?.allocations ?? []);
       setPortfolioPlan(portfolio?.plan ?? null);
       if (!portfolioEditing || !portfolioDirty) {
-        setPortfolioDraft((portfolio?.allocations ?? []).map(allocationToDraft));
+        setPortfolioDraft((portfolio?.allocations ?? []).map(draftAllocationFromPortfolio));
         if (!portfolioEditing) {
           setPortfolioDirty(false);
         }
@@ -658,7 +667,7 @@ export default function Dashboard() {
     } catch (err) {
       console.warn('[portal] portfolio refresh failed', err);
     }
-  }, [allocationToDraft, portfolioDirty, portfolioEditing]);
+  }, [portfolioDirty, portfolioEditing]);
 
   async function refreshAudit() {
     const entries = await fetchJson('/api/client/audit');
@@ -752,18 +761,18 @@ export default function Dashboard() {
   const startPortfolioEditing = useCallback(() => {
     setPortfolioSuccessMessage(null);
     setPortfolioErrorMessage(null);
-    setPortfolioDraft(portfolioAllocations.map(allocationToDraft));
+    setPortfolioDraft(portfolioAllocations.map(draftAllocationFromPortfolio));
     setPortfolioDirty(false);
     setPortfolioEditing(true);
-  }, [portfolioAllocations, allocationToDraft]);
+  }, [portfolioAllocations]);
 
   const cancelPortfolioEditing = useCallback(() => {
-    setPortfolioDraft(portfolioAllocations.map(allocationToDraft));
+    setPortfolioDraft(portfolioAllocations.map(draftAllocationFromPortfolio));
     setPortfolioDirty(false);
     setPortfolioEditing(false);
     setPortfolioSuccessMessage(null);
     setPortfolioErrorMessage(null);
-  }, [allocationToDraft, portfolioAllocations]);
+  }, [portfolioAllocations]);
 
   const handlePortfolioFieldChange = useCallback(
     (index: number, field: keyof PortfolioDraftRow, value: string | boolean) => {
@@ -812,11 +821,11 @@ export default function Dashboard() {
   }, [availableStrategyOptions, portfolioDraft]);
 
   const handlePortfolioReset = useCallback(() => {
-    setPortfolioDraft(portfolioAllocations.map(allocationToDraft));
+    setPortfolioDraft(portfolioAllocations.map(draftAllocationFromPortfolio));
     setPortfolioDirty(false);
     setPortfolioSuccessMessage(null);
     setPortfolioErrorMessage(null);
-  }, [allocationToDraft, portfolioAllocations]);
+  }, [portfolioAllocations]);
 
   const handlePortfolioSave = useCallback(async () => {
     try {
@@ -894,7 +903,7 @@ export default function Dashboard() {
     } finally {
       setPortfolioSaving(false);
     }
-  }, [portfolioDraft, portfolioDirty, portfolioEditing, refreshPortfolio, portfolioAllocations, allocationToDraft]);
+  }, [portfolioDraft, portfolioDirty, portfolioEditing, refreshPortfolio]);
 
   async function handleSetMevKey() {
     const input = typeof window !== 'undefined' ? window.prompt('Enter your MEV private key (0x...)') : null;
