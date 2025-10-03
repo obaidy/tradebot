@@ -6,6 +6,13 @@ export {
 } from './registry';
 export { runGridStrategy } from './gridStrategy';
 export { runMevBot } from './mevStrategy';
+export { runDexSwapStrategy } from './dexSwapStrategy';
+export { runPerpGridStrategy } from './perpGridStrategy';
+export { runDexAggregationStrategy } from './dexAggregationStrategy';
+export { runYieldFarmingStrategy } from './yieldFarmingStrategy';
+export { runFlashLoanArbStrategy } from './flashLoanArbStrategy';
+export { runCrossChainArbStrategy } from './crossChainArbStrategy';
+export { runNftMarketMakerStrategy } from './nftMarketMakerStrategy';
 export type { StrategyRequirement, StrategySummary } from './registry';
 export type { StrategyId, StrategyRunMode, StrategyRunContext } from './types';
 

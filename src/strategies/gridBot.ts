@@ -569,7 +569,25 @@ export interface OrderExecutionContext {
   metrics?: ExecutionMetrics;
   pendingTpPromises?: Promise<void>[];
   limiter?: RateLimiter;
-  fetchTicker: () => Promise<ExchangeTickerWithMeta>;
+  fetchTicker?: () => Promise<ExchangeTickerWithMeta>;
+}
+
+function buildTickerFetcher(context: OrderExecutionContext): () => Promise<ExchangeTickerWithMeta> {
+  if (context.fetchTicker) {
+    return () => context.fetchTicker();
+  }
+  return async () => {
+    const rawTicker = await context.exchange.fetchTicker(context.pair);
+    return {
+      symbol: context.pair,
+      bid: rawTicker?.bid ?? null,
+      ask: rawTicker?.ask ?? null,
+      last: rawTicker?.last ?? null,
+      timestamp: rawTicker?.timestamp ?? Date.now(),
+      source: 'exchange',
+      latencyMs: null,
+    };
+  };
 }
 
 export async function executeBuyLevels(context: OrderExecutionContext) {
@@ -1007,8 +1025,9 @@ async function placeAndMonitorOrder(
         state.tpPlaced += pendingTp;
       }
 
-      const ticker = await retry<ExchangeTickerWithMeta>(
-        () => context.fetchTicker(),
+    const tickerFetcher = buildTickerFetcher(context);
+    const ticker = await retry<ExchangeTickerWithMeta>(
+      () => tickerFetcher(),
         {
           attempts: EXCHANGE_RETRY_ATTEMPTS,
           delayMs: EXCHANGE_RETRY_DELAY_MS,
@@ -1360,8 +1379,9 @@ async function monitorSellOrder(params: {
         raw: updated as any,
       });
 
-      const ticker = await retry<ExchangeTickerWithMeta>(
-        () => context.fetchTicker(),
+    const fetchTicker = buildTickerFetcher(context);
+    const ticker = await retry<ExchangeTickerWithMeta>(
+      () => fetchTicker(),
         {
           attempts: EXCHANGE_RETRY_ATTEMPTS,
           delayMs: EXCHANGE_RETRY_DELAY_MS,
@@ -1716,7 +1736,10 @@ export async function runGridOnce(
   let takeProfitOverride: number | null = null;
   let performanceMetrics: RecentPerformanceMetrics | null = null;
   let riskSummary: RiskEvaluationResult | null = null;
+  let inventorySnapshotTimer: NodeJS.Timeout | null = null;
+  let recordInventorySnapshot: ((event: string) => Promise<void>) | null = null;
   let riskEngine: RiskEngine | null = null;
+  let runOutcome: 'success' | 'failed' = 'success';
   const detachTickerListener = streamingMonitorEnabled
     ? binanceStreamingGateway.onTicker(pair, (snapshot) => {
         const latencyMs = snapshot.source === 'ws' ? Date.now() - snapshot.receivedAt : null;
@@ -2337,26 +2360,63 @@ export async function runGridOnce(
 
   const [baseAsset, quoteAsset] = pair.split('/') as [string, string];
   if (baseAsset && quoteAsset) {
-    await inventoryRepo.insertSnapshot({
-      runId: plan.runId,
-      baseAsset,
-      quoteAsset,
-      exposureUsd: plannedExposureUsd,
-      metadata: {
-        event: 'run_start',
-        mid,
-        plannedExposureUsd,
-        priorExposureUsd,
-        projectedExposureUsd,
-        dailyExposureUsd,
-        projectedDailyExposureUsd,
-        limits: {
-          maxExposureUsd: operations.maxExposureUsd ?? null,
-          maxSymbols: operations.maxSymbols ?? null,
-          maxDailyVolumeUsd: operations.maxDailyVolumeUsd ?? null,
-        },
+    const snapshotMetadata = {
+      mid,
+      plannedExposureUsd,
+      priorExposureUsd,
+      projectedExposureUsd,
+      dailyExposureUsd,
+      projectedDailyExposureUsd,
+      limits: {
+        maxExposureUsd: operations.maxExposureUsd ?? null,
+        maxSymbols: operations.maxSymbols ?? null,
+        maxDailyVolumeUsd: operations.maxDailyVolumeUsd ?? null,
       },
-    });
+      intelligence: intelligenceSummary ?? undefined,
+      risk: riskSummary ?? undefined,
+    };
+
+    recordInventorySnapshot = async (event: string) => {
+      try {
+        await inventoryRepo.insertSnapshot({
+          runId: plan.runId,
+          baseAsset,
+          quoteAsset,
+          exposureUsd: plannedExposureUsd,
+          metadata: {
+            ...snapshotMetadata,
+            event,
+            recordedAt: new Date().toISOString(),
+          },
+        });
+      } catch (err) {
+        logger.warn('inventory_snapshot_failed', {
+          event: 'inventory_snapshot_failed',
+          runId: plan.runId,
+          pair,
+          stage: event,
+          error: errorMessage(err),
+        });
+      }
+    };
+
+    await recordInventorySnapshot(summaryOnly ? 'summary_snapshot' : 'run_start');
+
+    if (!summaryOnly) {
+      const intervalMs = Number(process.env.INVENTORY_SNAPSHOT_INTERVAL_MS || 900_000);
+      if (intervalMs > 0) {
+        inventorySnapshotTimer = setInterval(() => {
+          if (!recordInventorySnapshot) return;
+          recordInventorySnapshot('heartbeat').catch((err) => {
+            logger.debug('inventory_snapshot_heartbeat_failed', {
+              event: 'inventory_snapshot_heartbeat_failed',
+              pair,
+              error: errorMessage(err),
+            });
+          });
+        }, intervalMs);
+      }
+    }
   }
 
   logger.info('run_plan_ready', {
@@ -2580,7 +2640,8 @@ export async function runGridOnce(
   });
   await runsRepo.updateStatus({ runId: plan.runId, status: 'completed' });
   return plan;
-  } catch (err: any) {
+} catch (err: any) {
+    runOutcome = 'failed';
     await runsRepo.updateStatus({ runId: plan.runId, status: 'failed' });
     logger.error('run_failed', {
       event: 'run_failed',
@@ -2590,6 +2651,21 @@ export async function runGridOnce(
     });
     throw err;
   } finally {
+    if (inventorySnapshotTimer) {
+      clearInterval(inventorySnapshotTimer);
+    }
+    if (recordInventorySnapshot) {
+      try {
+        await recordInventorySnapshot(runOutcome === 'success' ? 'run_complete' : 'run_failed');
+      } catch (err) {
+        logger.warn('inventory_snapshot_finalize_failed', {
+          event: 'inventory_snapshot_finalize_failed',
+          runId: plan.runId,
+          pair,
+          error: errorMessage(err),
+        });
+      }
+    }
     if (releaseLock) {
       releaseLock();
     }

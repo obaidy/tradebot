@@ -2,6 +2,7 @@ import http, { IncomingMessage, ServerResponse } from 'http';
 import { parse } from 'url';
 import { promises as fs } from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { CONFIG as APP_CONFIG } from '../config';
 import { getPool, closePool } from '../db/pool';
 import { runMigrations } from '../db/migrations';
@@ -48,6 +49,12 @@ import { buildPortfolioExecutionPlan } from '../services/portfolio/portfolioMana
 import { getChatService } from '../chat/chatService';
 import type { StrategyId, StrategyRunMode } from '../strategies/types';
 import type { PlanId } from '../config/planTypes';
+import {
+  StrategyMarketplaceRepository,
+  StrategyFollowersRepository,
+  StrategyStatsRepository,
+  TournamentsRepository,
+} from '../db/socialTradingRepo';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -169,6 +176,10 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
   const workersRepo = new ClientWorkersRepository(pool);
   const agreementsRepo = new ClientAgreementsRepository(pool);
   const chatService = getChatService(pool);
+  const marketplaceRepo = new StrategyMarketplaceRepository(pool);
+  const followersRepo = new StrategyFollowersRepository(pool);
+  const statsRepo = new StrategyStatsRepository(pool);
+  const tournamentsRepo = new TournamentsRepository(pool);
 
   const REQUIRED_DOCUMENTS = [
     { documentType: 'tos', name: 'Terms of Service', version: APP_CONFIG.LEGAL.TOS_VERSION, file: 'terms' },
@@ -923,6 +934,253 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
             metadata: { strategyId },
           });
           sendJson(res, 204, {});
+          return;
+      }
+      methodNotAllowed(res);
+      return;
+    }
+
+      const socialStrategiesMatch = ctx.pathname.match(/^\/social\/strategies(?:\/([^/]+))?$/);
+      if (socialStrategiesMatch) {
+        const listingId = socialStrategiesMatch[1] ? decodeURIComponent(socialStrategiesMatch[1]) : null;
+        if (!listingId) {
+          if (ctx.method === 'GET') {
+            const ownerId = ctx.query.get('owner');
+            const includeStats = ctx.query.get('includeStats') === 'true';
+            const listings = ownerId
+              ? await marketplaceRepo.listByOwner(ownerId)
+              : await marketplaceRepo.listPublic();
+            if (!includeStats) {
+              sendJson(res, 200, listings);
+              return;
+            }
+            const enriched = await Promise.all(
+              listings.map(async (listing) => ({
+                ...listing,
+                stats: await statsRepo.get(listing.id),
+              }))
+            );
+            sendJson(res, 200, enriched);
+            return;
+          }
+          if (ctx.method === 'POST') {
+            const body = ctx.body ?? {};
+            const ownerClientId = body.clientId ?? body.client_id;
+            if (!ownerClientId) throw new Error('clientId required');
+            if (!body.strategyId) throw new Error('strategyId required');
+            if (!body.title) throw new Error('title required');
+            const id = body.id ?? crypto.randomUUID();
+            const listing = await marketplaceRepo.create({
+              id,
+              clientId: ownerClientId,
+              strategyId: body.strategyId,
+              title: body.title,
+              description: body.description ?? null,
+              config: body.config ?? null,
+              visibility: body.visibility ?? 'public',
+              tags: body.tags ?? [],
+              pricing: body.pricing ?? null,
+            });
+            if (body.publish === true) {
+              await marketplaceRepo.publish(id);
+            }
+            await statsRepo.upsert({ listingId: id, totalFollowers: 0, totalPnlUsd: 0 });
+            await auditRepo.addEntry({
+              clientId: ownerClientId,
+              actor: resolveActor(ctx.req),
+              action: 'social_strategy_created',
+              metadata: { listingId: id, strategyId: body.strategyId },
+            });
+            sendJson(res, 201, await marketplaceRepo.get(id));
+            return;
+          }
+          methodNotAllowed(res);
+          return;
+        }
+
+        if (ctx.method === 'GET') {
+          const listing = await marketplaceRepo.get(listingId);
+          if (!listing) {
+            sendJson(res, 404, { error: 'not_found' });
+            return;
+          }
+          const stats = await statsRepo.get(listingId);
+          sendJson(res, 200, { listing, stats });
+          return;
+        }
+
+        if (ctx.method === 'PUT') {
+          const body = ctx.body ?? {};
+          const listing = await marketplaceRepo.update(listingId, {
+            title: body.title ?? undefined,
+            description: body.description ?? undefined,
+            config: body.config ?? undefined,
+            visibility: body.visibility ?? undefined,
+            status: body.status ?? undefined,
+            tags: body.tags ?? undefined,
+            pricing: body.pricing ?? undefined,
+            performance: body.performance ?? undefined,
+            publishedAt: body.publishedAt ? new Date(body.publishedAt) : undefined,
+          });
+          if (!listing) {
+            sendJson(res, 404, { error: 'not_found' });
+            return;
+          }
+          if (body.action === 'publish') {
+            await marketplaceRepo.publish(listingId);
+          }
+          sendJson(res, 200, await marketplaceRepo.get(listingId));
+          return;
+        }
+
+        if (ctx.method === 'DELETE') {
+          await marketplaceRepo.remove(listingId);
+          sendJson(res, 204, {});
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const socialFollowersMatch = ctx.pathname.match(/^\/social\/strategies\/([^/]+)\/followers(?:\/([^/]+))?$/);
+      if (socialFollowersMatch) {
+        const listingId = decodeURIComponent(socialFollowersMatch[1]);
+        const followerId = socialFollowersMatch[2] ? decodeURIComponent(socialFollowersMatch[2]) : null;
+        if (!followerId) {
+          if (ctx.method === 'GET') {
+            const followers = await followersRepo.listFollowers(listingId);
+            sendJson(res, 200, followers);
+            return;
+          }
+          if (ctx.method === 'POST') {
+            const body = ctx.body ?? {};
+            if (!body.followerClientId) throw new Error('followerClientId required');
+            const follower = await followersRepo.upsert({
+              id: body.id ?? crypto.randomUUID(),
+              listingId,
+              followerClientId: body.followerClientId,
+              allocationPct: body.allocationPct ?? null,
+              settings: body.settings ?? null,
+              status: body.status ?? 'active',
+            });
+            const followerCount = (await followersRepo.listFollowers(listingId)).length;
+            await statsRepo.upsert({ listingId, totalFollowers: followerCount });
+            sendJson(res, 201, follower);
+            return;
+          }
+          methodNotAllowed(res);
+          return;
+        }
+
+        if (ctx.method === 'DELETE') {
+          await followersRepo.delete(listingId, followerId);
+          const followerCount = (await followersRepo.listFollowers(listingId)).length;
+          await statsRepo.upsert({ listingId, totalFollowers: followerCount });
+          sendJson(res, 204, {});
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      if (ctx.pathname === '/social/leaderboard' && ctx.method === 'GET') {
+        const limit = Number(ctx.query.get('limit') || 20);
+        const leaderboard = await statsRepo.leaderboard(limit);
+        sendJson(res, 200, leaderboard);
+        return;
+      }
+
+      const tournamentsMatch = ctx.pathname.match(/^\/social\/tournaments(?:\/([^/]+))?$/);
+      if (tournamentsMatch) {
+        const tournamentId = tournamentsMatch[1] ? decodeURIComponent(tournamentsMatch[1]) : null;
+        if (!tournamentId) {
+          if (ctx.method === 'GET') {
+            const tournaments = await tournamentsRepo.listTournaments();
+            sendJson(res, 200, tournaments);
+            return;
+          }
+          if (ctx.method === 'POST') {
+            const body = ctx.body ?? {};
+            const id = body.id ?? crypto.randomUUID();
+            if (!body.name) throw new Error('name required');
+            const tournament = await tournamentsRepo.createTournament({
+              id,
+              name: body.name,
+              description: body.description ?? null,
+              status: body.status ?? 'upcoming',
+              startsAt: body.startsAt ? new Date(body.startsAt) : null,
+              endsAt: body.endsAt ? new Date(body.endsAt) : null,
+              prizePoolUsd: body.prizePoolUsd ?? null,
+              metadata: body.metadata ?? null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+            sendJson(res, 201, tournament);
+            return;
+          }
+          methodNotAllowed(res);
+          return;
+        }
+
+        if (ctx.method === 'GET') {
+          const tournament = await tournamentsRepo.getTournament(tournamentId);
+          if (!tournament) {
+            sendJson(res, 404, { error: 'not_found' });
+            return;
+          }
+          const entries = await tournamentsRepo.listEntries(tournamentId);
+          sendJson(res, 200, { tournament, entries });
+          return;
+        }
+
+        if (ctx.method === 'PUT') {
+          const body = ctx.body ?? {};
+          const tournament = await tournamentsRepo.updateTournament(tournamentId, {
+            name: body.name,
+            description: body.description,
+            status: body.status,
+            startsAt: body.startsAt ? new Date(body.startsAt) : undefined,
+            endsAt: body.endsAt ? new Date(body.endsAt) : undefined,
+            prizePoolUsd: body.prizePoolUsd,
+            metadata: body.metadata,
+          });
+          if (!tournament) {
+            sendJson(res, 404, { error: 'not_found' });
+            return;
+          }
+          sendJson(res, 200, tournament);
+          return;
+        }
+
+        methodNotAllowed(res);
+        return;
+      }
+
+      const tournamentEntriesMatch = ctx.pathname.match(/^\/social\/tournaments\/([^/]+)\/entries$/);
+      if (tournamentEntriesMatch) {
+        const tournamentId = decodeURIComponent(tournamentEntriesMatch[1]);
+        if (ctx.method === 'GET') {
+          const entries = await tournamentsRepo.listEntries(tournamentId);
+          sendJson(res, 200, entries);
+          return;
+        }
+        if (ctx.method === 'POST') {
+          const body = ctx.body ?? {};
+          if (!body.clientId) throw new Error('clientId required');
+          const entry = await tournamentsRepo.upsertEntry({
+            id: body.id ?? crypto.randomUUID(),
+            tournamentId,
+            listingId: body.listingId ?? null,
+            clientId: body.clientId,
+            status: body.status ?? 'registered',
+            pnlUsd: body.pnlUsd ?? null,
+            sharpeRatio: body.sharpeRatio ?? null,
+            rank: body.rank ?? null,
+            metadata: body.metadata ?? null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+          sendJson(res, 201, entry);
           return;
         }
         methodNotAllowed(res);

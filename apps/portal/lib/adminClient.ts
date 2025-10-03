@@ -157,6 +157,110 @@ export async function triggerPaperRun(clientId: string, actor: string) {
   });
 }
 
+export async function listMarketplaceStrategies(params: { owner?: string; includeStats?: boolean } = {}) {
+  const search = new URLSearchParams();
+  if (params.owner) search.set('owner', params.owner);
+  if (params.includeStats) search.set('includeStats', 'true');
+  const query = search.toString();
+  return adminRequest(`/social/strategies${query ? `?${query}` : ''}`);
+}
+
+export async function createMarketplaceStrategy(payload: {
+  clientId: string;
+  strategyId: string;
+  title: string;
+  description?: string;
+  config?: Record<string, unknown> | null;
+  visibility?: string;
+  tags?: string[];
+  pricing?: Record<string, unknown> | null;
+  publish?: boolean;
+}) {
+  return adminRequest('/social/strategies', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    actor: payload.clientId,
+  });
+}
+
+export async function updateMarketplaceStrategy(listingId: string, patch: Record<string, unknown>) {
+  return adminRequest(`/social/strategies/${listingId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteMarketplaceStrategy(listingId: string) {
+  return adminRequest(`/social/strategies/${listingId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function followStrategy(listingId: string, payload: {
+  followerClientId: string;
+  allocationPct?: number | null;
+  settings?: Record<string, unknown> | null;
+  status?: string;
+}) {
+  return adminRequest(`/social/strategies/${listingId}/followers`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    actor: payload.followerClientId,
+  });
+}
+
+export async function unfollowStrategy(listingId: string, followerClientId: string) {
+  return adminRequest(`/social/strategies/${listingId}/followers/${followerClientId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function listStrategyFollowers(listingId: string) {
+  return adminRequest(`/social/strategies/${listingId}/followers`);
+}
+
+export async function fetchStrategyLeaderboard(limit = 20) {
+  return adminRequest(`/social/leaderboard?limit=${limit}`);
+}
+
+export async function listTournaments() {
+  return adminRequest('/social/tournaments');
+}
+
+export async function createTournament(payload: {
+  id?: string;
+  name: string;
+  description?: string;
+  status?: string;
+  startsAt?: string;
+  endsAt?: string;
+  prizePoolUsd?: number;
+  metadata?: Record<string, unknown> | null;
+}) {
+  return adminRequest('/social/tournaments', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateTournament(id: string, payload: Record<string, unknown>) {
+  return adminRequest(`/social/tournaments/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listTournamentEntries(tournamentId: string) {
+  return adminRequest(`/social/tournaments/${tournamentId}/entries`);
+}
+
+export async function upsertTournamentEntry(tournamentId: string, payload: Record<string, unknown>) {
+  return adminRequest(`/social/tournaments/${tournamentId}/entries`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function runClientStrategy(payload: {
   clientId: string;
   actor: string;

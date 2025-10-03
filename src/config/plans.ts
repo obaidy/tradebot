@@ -59,7 +59,7 @@ export const PLAN_DEFINITIONS: PlanDefinition[] = [
     priceUsd: 199,
     description: 'Multi-exchange, live trading allowed, advanced support.',
     features: ['Live trading unlock', 'Multiple exchange keys', 'Advanced metrics + alerts'],
-    strategies: ['grid', 'mev'],
+    strategies: ['grid', 'mev', 'dex-swap', 'perp-grid', 'dex-aggregation', 'yield-farming', 'flash-loan-arb', 'cross-chain-arb', 'nft-market-maker'],
     stripePriceId: process.env.STRIPE_PRO_PRICE_ID || 'price_pro_test',
     limits: {
       maxSymbols: 10,

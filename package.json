@@ -18,6 +18,7 @@
     "admin:server": "ts-node src/admin/server.ts",
     "paper:worker": "ts-node src/jobs/paperRunWorker.ts",
     "client:worker": "ts-node src/workers/clientRunner.ts",
+    "arbitrage:worker": "ts-node src/jobs/arbitrageWorker.ts",
     "portal:dev": "npm run dev --workspace portal",
     "portal:build": "npm run build --workspace portal",
     "portal:start": "npm run start --workspace portal"

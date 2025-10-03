@@ -183,7 +183,74 @@ const MIGRATION_QUERIES: string[] = [
       left_at TIMESTAMPTZ,
       PRIMARY KEY (conversation_id, participant_id, participant_type)
     );`,
-  `CREATE INDEX IF NOT EXISTS idx_chat_participants_conversation ON chat_participants(conversation_id);`
+  `CREATE INDEX IF NOT EXISTS idx_chat_participants_conversation ON chat_participants(conversation_id);`,
+  `CREATE TABLE IF NOT EXISTS social_strategy_listings (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      strategy_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      config_json JSONB,
+      visibility TEXT NOT NULL DEFAULT 'public',
+      status TEXT NOT NULL DEFAULT 'draft',
+      tags TEXT[] DEFAULT ARRAY[]::text[],
+      pricing_json JSONB,
+      performance_json JSONB,
+      published_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_social_strategy_listings_client ON social_strategy_listings(client_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_social_strategy_listings_visibility ON social_strategy_listings(visibility, status);`,
+  `CREATE TABLE IF NOT EXISTS social_strategy_followers (
+      id TEXT PRIMARY KEY,
+      listing_id TEXT NOT NULL REFERENCES social_strategy_listings(id) ON DELETE CASCADE,
+      follower_client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      allocation_pct NUMERIC,
+      settings_json JSONB,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (listing_id, follower_client_id)
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_social_strategy_followers_listing ON social_strategy_followers(listing_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_social_strategy_followers_follower ON social_strategy_followers(follower_client_id);`,
+  `CREATE TABLE IF NOT EXISTS social_strategy_stats (
+      listing_id TEXT PRIMARY KEY REFERENCES social_strategy_listings(id) ON DELETE CASCADE,
+      total_followers INTEGER NOT NULL DEFAULT 0,
+      total_pnl_usd NUMERIC NOT NULL DEFAULT 0,
+      sharpe_ratio NUMERIC,
+      win_rate NUMERIC,
+      max_drawdown_usd NUMERIC,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE TABLE IF NOT EXISTS social_tournaments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'upcoming',
+      starts_at TIMESTAMPTZ,
+      ends_at TIMESTAMPTZ,
+      prize_pool_usd NUMERIC,
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE TABLE IF NOT EXISTS social_tournament_entries (
+      id TEXT PRIMARY KEY,
+      tournament_id TEXT NOT NULL REFERENCES social_tournaments(id) ON DELETE CASCADE,
+      listing_id TEXT REFERENCES social_strategy_listings(id) ON DELETE CASCADE,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'registered',
+      pnl_usd NUMERIC,
+      sharpe_ratio NUMERIC,
+      rank INTEGER,
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_social_tournament_entries_tournament ON social_tournament_entries(tournament_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_social_tournament_entries_client ON social_tournament_entries(client_id);`
 ];
 
 const ranPools = new WeakSet<Pool>();

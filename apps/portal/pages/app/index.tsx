@@ -9,6 +9,11 @@ import { MetricCard } from '../../components/ui/MetricCard';
 import { DataTable, Column } from '../../components/ui/DataTable';
 import { useTableControls } from '../../components/ui/useTableControls';
 import { HeroVisualization } from '../../components/landing/HeroVisualization';
+import { TradingViewWidget } from '../../components/dashboard/TradingViewWidget';
+import { AnalyticsSummaryCards } from '../../components/dashboard/AnalyticsSummaryCards';
+import { CorrelationHeatmap } from '../../components/dashboard/CorrelationHeatmap';
+import { ExecutionStatsCard } from '../../components/dashboard/ExecutionStatsCard';
+import { AlertPreferencesCard } from '../../components/dashboard/AlertPreferencesCard';
 
 const REQUIRED_DOCUMENTS = [
   {
@@ -92,6 +97,35 @@ type InventoryRow = {
   baseBalance: number;
   quoteBalance: number;
   exposureUsd: number | null;
+};
+
+type PerformanceSummary = {
+  runCount: number;
+  totalNetPnlUsd: number;
+  avgNetPnlUsd: number;
+  sharpeRatio: number | null;
+  maxDrawdownUsd: number | null;
+  winRate: number | null;
+  avgHoldingHours: number | null;
+};
+
+type TradeExecutionStats = {
+  avgSlippageBps: number | null;
+  medianSlippageBps: number | null;
+  fillRatePct: number | null;
+  avgFillDurationSec: number | null;
+};
+
+type CorrelationEntry = {
+  assetA: string;
+  assetB: string;
+  correlation: number;
+};
+
+type AnalyticsSnapshot = {
+  performance: PerformanceSummary;
+  execution: TradeExecutionStats;
+  correlations: CorrelationEntry[];
 };
 
 type StrategySecretStatus = {
@@ -352,6 +386,9 @@ export default function Dashboard() {
   const [selectedAuditView, setSelectedAuditView] = useState('');
   const [selectedRunView, setSelectedRunView] = useState('');
   const [selectedInventoryView, setSelectedInventoryView] = useState('');
+  const [analytics, setAnalytics] = useState<AnalyticsSnapshot | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   const clientId = session?.user?.id;
   const actor = useMemo(() => session?.user?.email ?? clientId ?? 'unknown', [session?.user?.email, clientId]);
@@ -521,6 +558,12 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, [clientId, status]);
+
+  useEffect(() => {
+    refreshAnalytics();
+    const interval = setInterval(() => refreshAnalytics(true), 60_000);
+    return () => clearInterval(interval);
+  }, [refreshAnalytics]);
 
   useEffect(() => {
     if (!clientId || typeof window === 'undefined') return undefined;
@@ -1014,6 +1057,28 @@ export default function Dashboard() {
       setError(err instanceof Error ? err.message : 'Kill request failed');
     }
   }
+
+  const refreshAnalytics = useCallback(
+    async (silent = false) => {
+      try {
+        if (!silent) {
+          setAnalyticsLoading(true);
+          setAnalyticsError(null);
+        }
+        const snapshot = await fetchJson('/api/analytics/summary');
+        setAnalytics(snapshot as AnalyticsSnapshot);
+      } catch (err) {
+        if (!silent) {
+          setAnalyticsError(err instanceof Error ? err.message : 'Failed to load analytics');
+        }
+      } finally {
+        if (!silent) {
+          setAnalyticsLoading(false);
+        }
+      }
+    },
+    []
+  );
 
   const planNameById = useMemo(() => {
     return plans.reduce<Map<string, string>>((acc, plan) => {
@@ -2592,6 +2657,46 @@ export default function Dashboard() {
               </Card>
             </div>
           </Card>
+
+          <Card style={{ padding: '1.5rem', display: 'grid', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <Badge tone="secondary">TradingView</Badge>
+                <h2 style={{ margin: '0.5rem 0 0' }}>Live market tape</h2>
+                <p style={{ margin: 0, color: '#94A3B8' }}>
+                  Follow price action directly in the console. Switch your TradingView defaults to match the pair you are
+                  executing.
+                </p>
+              </div>
+            </div>
+            <TradingViewWidget symbol="BINANCE:BTCUSDT" height={420} />
+          </Card>
+
+          {analyticsError ? (
+            <Card style={{ border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.12)' }}>
+              <p style={{ margin: 0 }}>Analytics data is unavailable: {analyticsError}</p>
+            </Card>
+          ) : null}
+
+          <Card style={{ padding: '1.5rem', display: 'grid', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <Badge tone="primary">Risk analytics</Badge>
+                <h2 style={{ margin: '0.5rem 0 0' }}>Run analytics overview</h2>
+                <p style={{ margin: 0, color: '#94A3B8' }}>
+                  Sharpe, drawdowns, win rate, and holding time refresh every minute across your recent activity.
+                </p>
+              </div>
+              {analyticsLoading ? <Badge tone="secondary">Updating…</Badge> : null}
+            </div>
+            <AnalyticsSummaryCards performance={analytics?.performance} />
+          </Card>
+
+          <ExecutionStatsCard stats={analytics?.execution} />
+
+          <CorrelationHeatmap data={analytics?.correlations} />
+
+          <AlertPreferencesCard onSave={() => refreshAnalytics(true)} />
         </div>
       </DashboardLayout>
 

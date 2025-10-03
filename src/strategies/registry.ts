@@ -3,6 +3,13 @@ import type { PlanId } from '../config/planTypes';
 import { logger } from '../utils/logger';
 import { runGridStrategy } from './gridStrategy';
 import { runMevBot } from './mevStrategy';
+import { runDexSwapStrategy } from './dexSwapStrategy';
+import { runPerpGridStrategy } from './perpGridStrategy';
+import { runDexAggregationStrategy } from './dexAggregationStrategy';
+import { runYieldFarmingStrategy } from './yieldFarmingStrategy';
+import { runFlashLoanArbStrategy } from './flashLoanArbStrategy';
+import { runCrossChainArbStrategy } from './crossChainArbStrategy';
+import { runNftMarketMakerStrategy } from './nftMarketMakerStrategy';
 import type { StrategyId, StrategyRunContext, StrategyRunMode } from './types';
 
 export type StrategyRequirementMode = 'all' | 'any';
@@ -82,6 +89,145 @@ const STRATEGY_REGISTRY: Record<StrategyId, StrategyDefinition> = {
       },
     ],
     run: runMevBot,
+  },
+  'dex-swap': {
+    id: 'dex-swap',
+    name: 'DEX Swap',
+    description: 'Execute on-chain swaps via configured DEX routers with slippage controls.',
+    allowedPlans: deriveAllowedPlans('dex-swap'),
+    defaultPair: 'WETH/USDC',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: true,
+    status: 'beta',
+    ctaLabel: 'Dispatch DEX swap',
+    ctaDescription: 'Use RPC + signer credentials to route trades through on-chain venues.',
+    requirements: [
+      {
+        type: 'env',
+        keys: ['DEX_RPC_URL'],
+        message: 'Configure DEX_RPC_URL to point at your node provider.',
+      },
+    ],
+    run: runDexSwapStrategy,
+  },
+  'perp-grid': {
+    id: 'perp-grid',
+    name: 'Perpetual Grid',
+    description: 'Leverage-enabled grid strategy for perpetual futures markets.',
+    allowedPlans: deriveAllowedPlans('perp-grid'),
+    defaultPair: 'BTC/USDT',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: true,
+    status: 'beta',
+    ctaLabel: 'Launch perp grid',
+    ctaDescription: 'Deploy grid orders on futures exchanges with adjustable leverage.',
+    requirements: [
+      {
+        type: 'env',
+        keys: ['EXCHANGE_API_KEY', 'EXCHANGE_API_SECRET'],
+        message: 'Provide API credentials for derivatives venue.',
+      },
+    ],
+    run: runPerpGridStrategy,
+  },
+  'dex-aggregation': {
+    id: 'dex-aggregation',
+    name: 'DEX Aggregation',
+    description: 'Route swaps through 1inch or ParaSwap to secure best on-chain execution.',
+    allowedPlans: deriveAllowedPlans('dex-aggregation'),
+    defaultPair: 'ETH/USDC',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: true,
+    status: 'beta',
+    requirements: [
+      {
+        type: 'env',
+        mode: 'any',
+        keys: ['ONEINCH_API_KEY', 'PARASWAP_API_KEY'],
+        message: 'Provide at least one DEX aggregator API key (1inch or ParaSwap).',
+      },
+    ],
+    run: runDexAggregationStrategy,
+  },
+  'yield-farming': {
+    id: 'yield-farming',
+    name: 'Yield Farming',
+    description: 'Deploys liquidity into configured pools and harvests rewards with optional compounding.',
+    allowedPlans: deriveAllowedPlans('yield-farming'),
+    defaultPair: 'USDC/ETH',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: true,
+    status: 'beta',
+    requirements: [
+      {
+        type: 'env',
+        mode: 'any',
+        keys: ['YIELD_PROTOCOL', 'YIELD_POOL_ADDRESS'],
+        message: 'Set YIELD_PROTOCOL and YIELD_POOL_ADDRESS for the target farm.',
+      },
+    ],
+    run: runYieldFarmingStrategy,
+  },
+  'flash-loan-arb': {
+    id: 'flash-loan-arb',
+    name: 'Flash Loan Arbitrage',
+    description: 'Evaluates cross-venue spreads and executes with flash loan liquidity.',
+    allowedPlans: deriveAllowedPlans('flash-loan-arb'),
+    defaultPair: 'ETH/USDC',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: true,
+    status: 'beta',
+    requirements: [
+      {
+        type: 'env',
+        keys: ['FLASH_LOAN_PROVIDER'],
+        message: 'Specify a flash loan provider (e.g., aave, balancer).',
+      },
+    ],
+    run: runFlashLoanArbStrategy,
+  },
+  'cross-chain-arb': {
+    id: 'cross-chain-arb',
+    name: 'Cross-Chain Arbitrage',
+    description: 'Scans for spreads across chains and evaluates bridge routes.',
+    allowedPlans: deriveAllowedPlans('cross-chain-arb'),
+    defaultPair: 'ETH/USDC',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: true,
+    status: 'beta',
+    requirements: [
+      {
+        type: 'env',
+        keys: ['CROSS_CHAIN_BRIDGES'],
+        message: 'Provide bridge metadata via CROSS_CHAIN_BRIDGES JSON.',
+      },
+    ],
+    run: runCrossChainArbStrategy,
+  },
+  'nft-market-maker': {
+    id: 'nft-market-maker',
+    name: 'NFT Market Maker',
+    description: 'Monitors high-volume collections for spread capture opportunities.',
+    allowedPlans: deriveAllowedPlans('nft-market-maker'),
+    defaultPair: 'NFT',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: false,
+    status: 'beta',
+    requirements: [
+      {
+        type: 'env',
+        keys: ['NFT_COLLECTION_SLUG'],
+        message: 'Configure NFT_COLLECTION_SLUG to target a collection.',
+      },
+    ],
+    run: runNftMarketMakerStrategy,
   },
 };
 
