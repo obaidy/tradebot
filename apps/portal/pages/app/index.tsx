@@ -581,6 +581,22 @@ export default function Dashboard() {
     []
   );
 
+  const refreshPortfolio = useCallback(async () => {
+    try {
+      const portfolio = await fetchJson('/api/client/portfolio');
+      setPortfolioAllocations(portfolio?.allocations ?? []);
+      setPortfolioPlan(portfolio?.plan ?? null);
+      if (!portfolioEditing || !portfolioDirty) {
+        setPortfolioDraft((portfolio?.allocations ?? []).map(draftAllocationFromPortfolio));
+        if (!portfolioEditing) {
+          setPortfolioDirty(false);
+        }
+      }
+    } catch (err) {
+      console.warn('[portal] portfolio refresh failed', err);
+    }
+  }, [portfolioDirty, portfolioEditing]);
+
   const refreshSnapshot = useCallback(async () => {
     const snapshot = await fetchJson('/api/client/snapshot');
     applyClientSnapshotState(snapshot, {
@@ -717,52 +733,6 @@ export default function Dashboard() {
       setProcessingCheckout(false);
     }
   }
-
-  const refreshSnapshot = useCallback(async () => {
-    const snapshot = await fetchJson('/api/client/snapshot');
-    applyClientSnapshotState(snapshot, {
-      setClientState,
-      setBillingInfo,
-    });
-    const history = await fetchJson('/api/client/history');
-    setRunHistory(history?.runs ?? []);
-    setGuardSnapshot(history?.guard ?? null);
-    setInventoryHistory(history?.inventory ?? []);
-    const agreementsRes = await fetchJson('/api/client/agreements');
-    setAgreements(agreementsRes?.agreements ?? []);
-    setAgreementRequirements(agreementsRes?.requirements ?? []);
-    setAckChecklist((prev) => {
-      const next = { ...prev };
-      const accepted = new Set(
-        (agreementsRes?.requirements ?? [])
-          .filter((req: any) => req.accepted)
-          .map((req: any) => req.documentType)
-      );
-      REQUIRED_DOCUMENTS.forEach((doc) => {
-        if (accepted.has(doc.key)) {
-          next[doc.key] = true;
-        }
-      });
-      return next;
-    });
-    await refreshPortfolio();
-  }, [refreshPortfolio]);
-
-  const refreshPortfolio = useCallback(async () => {
-    try {
-      const portfolio = await fetchJson('/api/client/portfolio');
-      setPortfolioAllocations(portfolio?.allocations ?? []);
-      setPortfolioPlan(portfolio?.plan ?? null);
-      if (!portfolioEditing || !portfolioDirty) {
-        setPortfolioDraft((portfolio?.allocations ?? []).map(draftAllocationFromPortfolio));
-        if (!portfolioEditing) {
-          setPortfolioDirty(false);
-        }
-      }
-    } catch (err) {
-      console.warn('[portal] portfolio refresh failed', err);
-    }
-  }, [portfolioDirty, portfolioEditing]);
 
   async function refreshAudit() {
     const entries = await fetchJson('/api/client/audit');
