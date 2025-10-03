@@ -1442,7 +1442,7 @@ export default function Dashboard() {
         <title>OctoBot Portal · Operator Console</title>
       </Head>
       <DashboardLayout topRightSlot={topRightSlot}>
-        <div style={{ display: 'grid', gap: '1.75rem' }}>
+        <div className="dashboard-content">
           {message ? (
             <Card elevation="none" glass style={{ border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)' }}>
               <p style={{ margin: 0, color: '#BBF7D0' }}>{message}</p>
@@ -1452,31 +1452,25 @@ export default function Dashboard() {
           <div className="metrics-grid">
             {pnlTrend && pnlTrend.length > 2 ? (
               <Card
+                className="dashboard-telemetry-card"
                 style={{
                   gridColumn: '1 / -1',
-                  padding: '2.25rem',
-                  display: 'grid',
-                  gap: '1.5rem',
                   background: 'linear-gradient(135deg, rgba(14,165,233,0.25), rgba(59,130,246,0.15))',
-                  position: 'relative',
-                  overflow: 'hidden',
                 }}
                 hoverLift
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div className="dashboard-telemetry-card__meta">
                   <div>
                     <Badge tone="primary">Live telemetry</Badge>
-                    <h2 style={{ margin: '0.85rem 0 0' }}>Strategy momentum</h2>
+                    <h2 className="dashboard-section-title">Strategy momentum</h2>
                     <p style={{ margin: 0, color: '#CFE5FF', maxWidth: 520 }}>
                       Real-time global P&L trajectory blended with recent paper runs. Use it as your north star before
                       promoting to live.
                     </p>
                   </div>
-                  <div style={{ textAlign: 'right', minWidth: 180 }}>
-                    <p style={{ margin: 0, color: '#bbf7d0', fontSize: '0.85rem', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                      Latest global P&L
-                    </p>
-                    <p style={{ margin: '0.35rem 0 0', fontSize: '1.65rem', fontWeight: 700 }}>
+                  <div className="dashboard-telemetry-card__summary">
+                    <p className="dashboard-telemetry-card__summary-label">Latest global P&L</p>
+                    <p className="dashboard-telemetry-card__summary-value">
                       {metrics?.pnl?.global !== undefined && metrics?.pnl?.global !== null
                         ? `$${metrics.pnl.global.toFixed(2)}`
                         : '—'}
@@ -1501,8 +1495,8 @@ export default function Dashboard() {
             ))}
           </div>
 
-          <Card style={{ display: 'grid', gap: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <Card className="dashboard-panel" style={{ gap: '1rem' }}>
+            <div className="dashboard-panel__header">
               <div>
                 <Badge tone="primary">Strategy Portfolio</Badge>
                 <h2 style={{ margin: '0.75rem 0 0' }}>Allocation overview</h2>
@@ -1511,7 +1505,7 @@ export default function Dashboard() {
                   {portfolioPlan?.normalized ? ' (auto-normalised)' : ''}
                 </p>
               </div>
-              <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
+              <div className="dashboard-button-row">
                 {portfolioEditing ? (
                   <>
                     <Button variant="ghost" onClick={handlePortfolioAdd} disabled={portfolioSaving || !availableStrategyOptions.length}>
@@ -1783,7 +1777,7 @@ export default function Dashboard() {
           </Card>
 
           {strategies.length ? (
-            <Card style={{ display: 'grid', gap: '1.25rem' }}>
+            <Card className="dashboard-panel" style={{ gap: '1.25rem' }}>
               <div>
                 <Badge tone="primary">Strategy catalog</Badge>
                 <h2 style={{ margin: '0.75rem 0 0' }}>Bot lineup</h2>
@@ -1791,13 +1785,7 @@ export default function Dashboard() {
                   Your plan unlocks {unlockedStrategyIds.size} of {strategies.length} strategies.
                 </p>
               </div>
-              <div
-                style={{
-                  display: 'grid',
-                  gap: '1rem',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                }}
-              >
+              <div className="dashboard-strategy-grid">
                 {strategies.map((strategy) => {
                   const allowedPlanIds = [...strategy.allowedPlans].sort((a, b) => {
                     const left = planOrderById.get(a) ?? Number.MAX_SAFE_INTEGER;
@@ -1836,20 +1824,14 @@ export default function Dashboard() {
                       key={strategy.id}
                       glass={false}
                       elevation="none"
-                      style={{
-                        border: unlocked ? '1px solid rgba(34,197,94,0.35)' : '1px solid rgba(148,163,184,0.18)',
-                        background: unlocked ? 'rgba(21,128,61,0.12)' : 'rgba(15,23,42,0.55)',
-                        display: 'grid',
-                        gap: '0.75rem',
-                        padding: '1rem 1.15rem',
-                      }}
+                      className={`dashboard-strategy-card${unlocked ? ' dashboard-strategy-card--unlocked' : ''}`}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' }}>
+                      <div className="dashboard-strategy-card__header">
                         <div>
                           <h3 style={{ margin: 0 }}>{strategy.name}</h3>
                           <p style={{ margin: '0.35rem 0 0', color: '#cbd5f5' }}>{strategy.description}</p>
                         </div>
-                        <div style={{ display: 'grid', gap: '0.35rem', textAlign: 'right' }}>
+                        <div className="dashboard-strategy-card__status">
                           <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
                           <Badge tone={unlocked ? 'success' : 'neutral'}>{unlocked ? 'Included' : 'Locked'}</Badge>
                         </div>
@@ -1863,7 +1845,7 @@ export default function Dashboard() {
                       <p style={{ margin: 0, color: '#64748B', fontSize: '0.9rem' }}>
                         Available on: {allowedPlanNames.join(', ')}
                       </p>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div className="dashboard-button-row">
                         {canRunPaper ? (
                           <Button variant="secondary" onClick={() => handleStrategyRun(strategy, 'paper')}>
                             Start paper
@@ -2033,14 +2015,8 @@ export default function Dashboard() {
             </Card>
           ) : null}
 
-          <div
-            style={{
-              display: 'grid',
-              gap: '1.5rem',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-            }}
-          >
-            <Card style={{ display: 'grid', gap: '1.2rem' }}>
+          <div className="dashboard-grid-twocol">
+            <Card className="dashboard-panel" style={{ gap: '1.2rem' }}>
               <div>
                 <Badge tone="primary">Plan & Billing</Badge>
                 <h2 style={{ margin: '0.75rem 0 0' }}>Choose your path</h2>
@@ -2057,13 +2033,7 @@ export default function Dashboard() {
                       key={plan.id}
                       glass={false}
                       elevation="none"
-                      style={{
-                        border: isCurrent ? '1px solid rgba(56,189,248,0.45)' : '1px solid rgba(148,163,184,0.12)',
-                        background: isCurrent ? 'rgba(14,165,233,0.12)' : 'rgba(15,23,42,0.55)',
-                        padding: '1.1rem 1.2rem',
-                        display: 'grid',
-                        gap: '0.6rem',
-                      }}
+                      className={`dashboard-plan-card${isCurrent ? ' dashboard-plan-card--current' : ''}`}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
@@ -2089,7 +2059,7 @@ export default function Dashboard() {
                         {isCurrent ? 'Manage billing' : isDowngrade ? 'Downgrade' : 'Upgrade'}
                       </Button>
                       {isCurrent ? (
-                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <div className="dashboard-plan-card__actions">
                           <Button
                             variant="ghost"
                             onClick={() => handleCancelMembership(false)}
@@ -2112,7 +2082,7 @@ export default function Dashboard() {
               </div>
             </Card>
 
-            <Card style={{ display: 'grid', gap: '1rem' }}>
+            <Card className="dashboard-panel" style={{ gap: '1rem' }}>
               <div>
                 <Badge tone="primary">API credentials</Badge>
                 <h2 style={{ margin: '0.75rem 0 0' }}>Secure exchange keys</h2>
@@ -2199,7 +2169,7 @@ export default function Dashboard() {
               </div>
             </Card>
 
-            <Card style={{ display: 'grid', gap: '1rem' }}>
+            <Card className="dashboard-panel" style={{ gap: '1rem' }}>
               <div>
                 <Badge tone="primary">Paper validation</Badge>
                 <h2 style={{ margin: '0.75rem 0 0' }}>Canary on demand</h2>
@@ -2235,12 +2205,12 @@ export default function Dashboard() {
               gridTemplateColumns: 'minmax(320px, 1fr) minmax(360px, 1fr)',
             }}
           >
-            <Card style={{ display: 'grid', gap: '1rem' }}>
+            <Card className="dashboard-panel" style={{ gap: '1rem' }}>
               <div>
                 <Badge tone="primary">Runner controls</Badge>
                 <h2 style={{ margin: '0.75rem 0 0' }}>Guard rails</h2>
               </div>
-              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <div className="dashboard-button-row">
                 <Button variant="secondary" onClick={handlePause} disabled={clientState.isPaused}>
                   Pause
                 </Button>
@@ -2293,7 +2263,7 @@ export default function Dashboard() {
               </div>
             </Card>
 
-            <Card style={{ display: 'grid', gap: '1rem' }}>
+            <Card className="dashboard-panel" style={{ gap: '1rem' }}>
               <div>
                 <Badge tone="primary">Audit trail</Badge>
                 <h2 style={{ margin: '0.75rem 0 0' }}>Recent actions</h2>
@@ -2409,7 +2379,7 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          <Card style={{ display: 'grid', gap: '1.5rem' }}>
+          <Card className="dashboard-panel" style={{ gap: '1.5rem' }}>
             <div>
               <Badge tone="primary">Performance history</Badge>
               <h2 style={{ margin: '0.75rem 0 0' }}>Run archive</h2>
@@ -2523,7 +2493,7 @@ export default function Dashboard() {
               tableMinWidth={720}
             />
 
-            <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+            <div className="dashboard-grid-balanced" style={{ gap: '1rem' }}>
               <Card elevation="none" glass style={{ padding: '1.25rem', background: 'rgba(32, 54, 84, 0.35)' }}>
                 <h3 style={{ margin: '0 0 0.5rem' }}>Guard snapshot</h3>
                 {guardSnapshot ? (

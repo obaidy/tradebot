@@ -7,12 +7,15 @@ export interface SectionProps {
   style?: CSSProperties;
   spacing?: string;
   id?: string;
+  className?: string;
+  containerClassName?: string;
 }
 
-export function Section({ children, align = 'left', style, spacing, id }: SectionProps) {
+export function Section({ children, align = 'left', style, spacing, id, className, containerClassName }: SectionProps) {
   return (
     <section
       id={id}
+      className={className}
       style={{
         padding: spacing ?? layout.sectionSpacing + ' 0',
         textAlign: align === 'center' ? 'center' : undefined,
@@ -20,7 +23,7 @@ export function Section({ children, align = 'left', style, spacing, id }: Sectio
       }}
     >
       <div
-        className="container"
+        className={`container${containerClassName ? ` ${containerClassName}` : ''}`}
         style={{
           display: 'flex',
           flexDirection: 'column',

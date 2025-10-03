@@ -5,15 +5,16 @@ const baseStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: '0.6rem',
-  padding: '0.9rem 1.6rem',
-  borderRadius: '999px',
+  gap: '0.5rem',
+  padding: '0.85rem 1.45rem',
+  borderRadius: '16px',
   fontFamily: typography.fontFamily,
+  fontSize: '0.95rem',
   fontWeight: 600,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  textTransform: 'none',
   cursor: 'pointer',
-  transition: 'transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease',
+  transition: 'transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease, color 0.25s ease',
 };
 
 const primaryStyle: CSSProperties = {
@@ -26,17 +27,18 @@ const primaryStyle: CSSProperties = {
 
 const secondaryStyle: CSSProperties = {
   ...baseStyle,
-  border: `1px solid rgba(148, 163, 184, 0.35)`,
-  background: 'rgba(17, 24, 39, 0.6)',
+  border: `1px solid rgba(148, 163, 184, 0.4)`,
+  background: 'rgba(15, 23, 42, 0.6)',
   color: palette.textPrimary,
+  boxShadow: '0 12px 28px rgba(15, 23, 42, 0.35)',
 };
 
 const ghostStyle: CSSProperties = {
   ...baseStyle,
-  padding: '0.75rem 1.2rem',
+  padding: '0.75rem 1.25rem',
   background: 'transparent',
-  border: `1px solid rgba(148,163,184,0.18)`,
-  color: palette.textSecondary,
+  border: `1px solid rgba(148,163,184,0.24)`,
+  color: palette.textPrimary,
 };
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
@@ -64,10 +66,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(({ variant = 'p
           target.style.transform = 'translateY(-2px)';
           target.style.boxShadow = '0 24px 48px rgba(99, 102, 241, 0.4)';
         } else if (variant === 'secondary') {
-          target.style.borderColor = 'rgba(56, 189, 248, 0.35)';
-          target.style.background = 'rgba(17, 24, 39, 0.8)';
+          target.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+          target.style.background = 'rgba(15, 23, 42, 0.75)';
         } else {
-          target.style.borderColor = 'rgba(99,102,241,0.35)';
+          target.style.borderColor = 'rgba(56,189,248,0.35)';
+          target.style.background = 'rgba(56,189,248,0.1)';
         }
       }}
       onMouseOut={(event) => {
@@ -77,10 +80,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(({ variant = 'p
           target.style.transform = 'translateY(0)';
           target.style.boxShadow = primaryStyle.boxShadow || '';
         } else if (variant === 'secondary') {
-          target.style.borderColor = secondaryStyle.border as string;
+          target.style.borderColor = (secondaryStyle.border as string) || 'rgba(148,163,184,0.4)';
           target.style.background = secondaryStyle.background as string;
         } else {
           target.style.borderColor = ghostStyle.border as string;
+          target.style.background = ghostStyle.background as string;
         }
       }}
     />

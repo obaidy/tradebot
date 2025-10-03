@@ -22,7 +22,19 @@ const accentColor: Record<NonNullable<MetricCardProps['accent']>, string> = {
 
 export function MetricCard({ label, value, footer, accent = 'primary', trend, animated, style }: MetricCardProps) {
   return (
-    <Card hoverLift style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', ...style }}>
+    <Card
+      hoverLift
+      className="metric-card"
+      style={{
+        display: 'grid',
+        gap: '0.75rem',
+        gridTemplateRows: trend && trend.length > 1 ? 'auto auto 1fr auto' : 'auto auto auto',
+        alignContent: 'space-between',
+        minHeight: trend && trend.length > 1 ? '220px' : '180px',
+        height: '100%',
+        ...style,
+      }}
+    >
       <span
         style={{
           fontFamily: typography.fontFamily,
@@ -37,7 +49,9 @@ export function MetricCard({ label, value, footer, accent = 'primary', trend, an
       </span>
       <strong style={{ fontSize: '1.6rem', letterSpacing: '-0.01em' }}>{value}</strong>
       {trend && trend.length > 1 ? (
-        <Sparkline data={trend} width={190} height={60} animated={animated} />
+        <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <Sparkline data={trend} width={190} height={60} animated={animated} />
+        </div>
       ) : null}
       {footer ? <span style={{ color: palette.textSecondary, fontSize: '0.85rem' }}>{footer}</span> : null}
     </Card>

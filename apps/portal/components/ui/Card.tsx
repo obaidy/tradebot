@@ -8,6 +8,7 @@ export interface CardProps {
   glass?: boolean;
   hoverLift?: boolean;
   style?: CSSProperties;
+  className?: string;
 }
 
 const baseStyle: CSSProperties = {
@@ -28,6 +29,7 @@ export function Card({
   glass = true,
   hoverLift = false,
   style,
+  className,
 }: CardProps) {
   const cardStyle: CSSProperties = {
     ...baseStyle,
@@ -52,6 +54,7 @@ export function Card({
 
   return (
     <div
+      className={className}
       style={hoverLift ? { ...cardStyle, ...hoverStyle } : cardStyle}
       onMouseEnter={(event) => {
         if (!hoverLift) return;

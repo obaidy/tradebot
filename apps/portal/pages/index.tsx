@@ -124,78 +124,63 @@ export default function LandingPage() {
         </header>
 
         <main>
-          <Section spacing="6rem 0" id="hero">
-            <div
-              style={{
-                display: 'grid',
-                gap: '2.5rem',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                alignItems: 'center',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2.4rem' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                  <Badge tone="primary">OctoBot Control Plane</Badge>
-                  <h1 className="section-heading gradient-text" style={{ margin: 0 }}>
-                    {callouts.hero.headline}
-                  </h1>
-                  <p className="section-subheading" style={{ color: '#CBD5F5', margin: 0 }}>
-                    {callouts.hero.subheadline}
-                  </p>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-                  <Link href="/app" legacyBehavior>
-                    <a>
-                      <Button>{callouts.hero.primaryCta}</Button>
-                    </a>
-                  </Link>
-                  <Link href="/#strategies" legacyBehavior>
-                    <a>
-                      <Button variant="secondary">{callouts.hero.secondaryCta}</Button>
-                    </a>
-                  </Link>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-                  {callouts.hero.trustBadges.map((badge) => (
-                    <Badge key={badge} tone="neutral">
-                      {badge}
-                    </Badge>
-                  ))}
-                </div>
+          <Section spacing="6rem 0" id="hero" containerClassName="landing-hero">
+            <div className="landing-hero__content">
+              <div className="landing-hero__headline">
+                <Badge tone="primary">OctoBot Control Plane</Badge>
+                <h1 className="section-heading gradient-text" style={{ margin: 0 }}>
+                  {callouts.hero.headline}
+                </h1>
+                <p className="section-subheading" style={{ color: '#CBD5F5', margin: 0 }}>
+                  {callouts.hero.subheadline}
+                </p>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <Card glass hoverLift style={{ padding: '2rem', background: 'rgba(17,24,39,0.6)' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
-                    <Badge tone="primary">Live Telemetry Preview</Badge>
-                    <h3 style={{ margin: 0, fontSize: '1.8rem', fontWeight: 600 }}>BTC/USDT Grid</h3>
-                  </div>
-                  <div className="hero-visual">
-                    <HeroVisualization points={fakeSeries} />
-                  </div>
-                  <span style={{ marginTop: '1.5rem', fontSize: '0.8rem', color: '#94A3B8' }}>
-                    Telemetry refreshes every 5 seconds · Guard latency &lt; 200ms · 24/7 on-call safety net
-                  </span>
-                </Card>
+              <div className="landing-hero__cta">
+                <Link href="/app" legacyBehavior>
+                  <a>
+                    <Button>{callouts.hero.primaryCta}</Button>
+                  </a>
+                </Link>
+                <Link href="/#strategies" legacyBehavior>
+                  <a>
+                    <Button variant="secondary">{callouts.hero.secondaryCta}</Button>
+                  </a>
+                </Link>
               </div>
+              <div className="landing-hero__badges">
+                {callouts.hero.trustBadges.map((badge) => (
+                  <Badge key={badge} tone="neutral">
+                    {badge}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div className="landing-hero__visual">
+              <Card glass hoverLift className="landing-hero__card">
+                <div style={{ display: 'grid', gap: '1rem', marginBottom: '1.5rem' }}>
+                  <Badge tone="primary">Live Telemetry Preview</Badge>
+                  <h3 style={{ margin: 0, fontSize: '1.8rem', fontWeight: 600 }}>BTC/USDT Grid</h3>
+                </div>
+                <div className="hero-visual">
+                  <HeroVisualization points={fakeSeries} />
+                </div>
+                <span style={{ marginTop: '1.5rem', fontSize: '0.8rem', color: '#94A3B8' }}>
+                  Telemetry refreshes every 5 seconds · Guard latency &lt; 200ms · 24/7 on-call safety net
+                </span>
+              </Card>
             </div>
           </Section>
 
           <Section spacing="5rem 0" id="strategies">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
-              <div style={{ textAlign: 'center', maxWidth: 720, margin: '0 auto', display: 'grid', gap: '1rem' }}>
+            <div style={{ display: 'grid', gap: '2.5rem' }}>
+              <div className="landing-section-intro">
                 <Badge tone="primary">Bot lineup</Badge>
                 <h2 className="section-heading">Choose the strategy that fits your book</h2>
                 <p className="section-subheading">
                   Every bot ships with promotion gates, audit logs, and guard rails that mirror the operator console. Start in paper, then graduate to live when your plan unlocks it.
                 </p>
               </div>
-              <div
-                style={{
-                  display: 'grid',
-                  gap: '1.5rem',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-                }}
-              >
+              <div className="landing-strategy-grid">
                 {strategiesShowcase.map((strategy) => {
                   const plansLower = strategy.plans.toLowerCase();
                   const badgeTone: 'success' | 'secondary' | 'warning' = plansLower.includes('beta')
@@ -204,21 +189,21 @@ export default function LandingPage() {
                       ? 'secondary'
                       : 'success';
                   return (
-                    <Card key={strategy.id} hoverLift style={{ padding: '2rem', display: 'grid', gap: '1.3rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Card key={strategy.id} hoverLift className="landing-strategy-card">
+                      <div className="landing-strategy-card__header">
                         <h3 style={{ margin: 0 }}>{strategy.name}</h3>
                         <Badge tone={badgeTone}>{strategy.plans}</Badge>
                       </div>
                       <p style={{ margin: 0, color: '#C7D2FE', fontSize: '1.05rem' }}>{strategy.headline}</p>
                       <p style={{ margin: 0, color: '#94A3B8', lineHeight: 1.7 }}>{strategy.description}</p>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div className="landing-strategy-card__tags">
                         {strategy.highlights.map((item) => (
                           <Badge key={item} tone="neutral">
                             {item}
                           </Badge>
                         ))}
                       </div>
-                      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <div className="landing-strategy-card__cta">
                         <Link href={`/app?strategy=${strategy.id}`} legacyBehavior>
                           <a>
                             <Button variant="secondary">Preview in dashboard</Button>
@@ -253,14 +238,7 @@ export default function LandingPage() {
           </Section>
 
           <Section spacing="4rem 0">
-            <div
-              style={{
-                display: 'grid',
-                gap: '3rem',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                alignItems: 'start',
-              }}
-            >
+            <div className="landing-split-grid">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 <Badge tone="primary">Release pipeline, operationalized</Badge>
                 <h2 className="section-heading" style={{ margin: 0 }}>
@@ -287,7 +265,7 @@ export default function LandingPage() {
                   ))}
                 </div>
               </div>
-              <Card style={{ display: 'grid', gap: '1.25rem', padding: '2rem' }} hoverLift>
+              <Card className="landing-feature-card" style={{ gap: '1.25rem' }} hoverLift>
                 <Badge tone="neutral">Release readiness</Badge>
                 <h3 style={{ margin: 0, fontSize: '1.5rem' }}>Milestone 7 · Paper Canary Passed</h3>
                 <div style={{ display: 'grid', gap: '1rem' }}>
@@ -325,13 +303,7 @@ export default function LandingPage() {
               <p className="section-subheading" style={{ margin: '0 auto' }}>
                 We are an ops-obsessed team of ex-quant traders and SREs. Every feature ships after living in our own desks—telemetry, guard rails, billing, and release artefacts included.
               </p>
-              <div
-                style={{
-                  display: 'grid',
-                  gap: '1rem',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                }}
-              >
+              <div className="landing-feature-grid">
                 {[
                   {
                     title: 'Operator-first design',
@@ -346,7 +318,7 @@ export default function LandingPage() {
                     body: 'Promotion gates ensure no strategy graduates to live without explicit human approval.',
                   },
                 ].map((item) => (
-                  <Card key={item.title} elevation="none" style={{ padding: '1.75rem', background: 'rgba(17,24,39,0.65)' }}>
+                  <Card key={item.title} elevation="none" className="landing-feature-card">
                     <h3 style={{ margin: 0 }}>{item.title}</h3>
                     <p style={{ margin: '0.65rem 0 0', color: '#94A3B8' }}>{item.body}</p>
                   </Card>
@@ -364,7 +336,7 @@ export default function LandingPage() {
                 headcount.
               </p>
             </div>
-            <div className="testimonial-row">
+            <div className="testimonial-row landing-testimonials">
               {testimonials.map((item, idx) => (
                 <Card key={item.name} hoverLift style={{ padding: '2rem', animationDelay: `${idx * 0.1}s` }}>
                   <p style={{ fontSize: '1.05rem', lineHeight: 1.7, color: '#E2E8F0' }}>“{item.quote}”</p>
@@ -391,13 +363,11 @@ export default function LandingPage() {
                 <Card
                   key={plan.name}
                   hoverLift
+                  className="landing-pricing-card"
                   style={{
                     border: plan.popular ? '1px solid rgba(99,102,241,0.65)' : undefined,
                     transform: plan.popular ? 'translateY(-12px)' : undefined,
                     boxShadow: plan.popular ? '0 35px 70px rgba(99,102,241,0.35)' : undefined,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1.2rem',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -409,9 +379,9 @@ export default function LandingPage() {
                     <p style={{ margin: '0.35rem 0 0', color: '#94A3B8' }}>{plan.cadence}</p>
                   </div>
                   <p style={{ color: '#38BDF8', fontSize: '0.9rem', margin: 0 }}>{plan.highlight}</p>
-                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.8rem' }}>
+                  <ul className="landing-pricing-features">
                     {plan.features.map((feature) => (
-                      <li key={feature} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', color: '#E2E8F0' }}>
+                      <li key={feature} style={{ color: '#E2E8F0' }}>
                         <Badge tone="primary" style={{ width: '1.75rem', justifyContent: 'center' }}>
                           ✓
                         </Badge>
@@ -419,22 +389,17 @@ export default function LandingPage() {
                       </li>
                     ))}
                   </ul>
-                  <Button fullWidth>{plan.cta}</Button>
+                  <div className="landing-pricing-cta">
+                    <Button fullWidth>{plan.cta}</Button>
+                  </div>
                 </Card>
               ))}
             </div>
           </Section>
 
           <Section spacing="4rem 0" id="faq">
-            <div
-              style={{
-                display: 'grid',
-                gap: '3rem',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                alignItems: 'start',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div className="landing-faq">
+              <div style={{ display: 'grid', gap: '1.5rem' }}>
                 <Badge tone="primary">FAQ</Badge>
                 <h2 className="section-heading" style={{ margin: 0 }}>
                   Answers before you hit deploy
@@ -461,15 +426,15 @@ export default function LandingPage() {
           </Section>
 
           <Section spacing="6rem 0" align="center">
-            <Card glass hoverLift style={{ padding: '3rem', maxWidth: '780px', margin: '0 auto' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <Card glass hoverLift className="landing-cta-card" style={{ maxWidth: '780px', margin: '0 auto' }}>
+              <div style={{ display: 'grid', gap: '1.5rem' }}>
                 <h2 className="section-heading" style={{ margin: 0 }}>
                   Step into the command center
                 </h2>
                 <p className="section-subheading" style={{ margin: '0 auto' }}>
                   Monitor live strategies, edit guardrails, approve releases, and handle billing from a single workspace.
                 </p>
-                <div style={{ display: 'inline-flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <div className="landing-cta-card__actions">
                   <Button>Join the Beta List</Button>
                   <Link href="/legal/tos" legacyBehavior>
                     <a>
@@ -482,11 +447,8 @@ export default function LandingPage() {
           </Section>
         </main>
 
-        <footer style={{ borderTop: '1px solid rgba(148,163,184,0.12)', background: 'rgba(5,8,22,0.8)', padding: '2rem 0' }}>
-          <div
-            className="container"
-            style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1.5rem' }}
-          >
+        <footer className="landing-footer">
+          <div className="container landing-footer__inner">
             <div>
               <p style={{ margin: 0, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' }}>OctoBot</p>
               <p style={{ margin: '0.35rem 0 0', color: '#94A3B8', fontSize: '0.85rem' }}>
