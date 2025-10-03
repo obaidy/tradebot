@@ -573,18 +573,19 @@ export interface OrderExecutionContext {
 }
 
 function buildTickerFetcher(context: OrderExecutionContext): () => Promise<ExchangeTickerWithMeta> {
-  if (context.fetchTicker) {
-    return () => context.fetchTicker();
+  const fetcher = context.fetchTicker;
+  if (fetcher) {
+    return () => fetcher();
   }
   return async () => {
     const rawTicker = await context.exchange.fetchTicker(context.pair);
     return {
       symbol: context.pair,
-      bid: rawTicker?.bid ?? null,
-      ask: rawTicker?.ask ?? null,
-      last: rawTicker?.last ?? null,
+      bid: typeof rawTicker?.bid === 'number' ? rawTicker.bid : null,
+      ask: typeof rawTicker?.ask === 'number' ? rawTicker.ask : null,
+      last: typeof rawTicker?.last === 'number' ? rawTicker.last : null,
       timestamp: rawTicker?.timestamp ?? Date.now(),
-      source: 'exchange',
+      source: 'rest' as const,
       latencyMs: null,
     };
   };

@@ -24,6 +24,7 @@ export interface DexQuoteResponse {
 }
 
 export interface DexSwapRequest extends DexQuoteRequest {
+  aggregator?: string;
   minAmountOut: string;
   recipient: string;
 }
