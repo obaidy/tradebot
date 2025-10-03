@@ -586,7 +586,7 @@ function buildTickerFetcher(context: OrderExecutionContext): () => Promise<Excha
       last: typeof rawTicker?.last === 'number' ? rawTicker.last : null,
       timestamp: rawTicker?.timestamp ?? Date.now(),
       source: 'rest' as const,
-      latencyMs: null,
+      latencyMs: undefined,
     };
   };
 }

@@ -1,15 +1,48 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]';
-import { getPool } from '../../../../../src/db/pool';
-import { PerformanceAnalyticsService } from '../../../../../src/services/analytics/performanceAnalytics';
-import {
-  analyticsSharpeGauge,
-  analyticsMaxDrawdownGauge,
-  analyticsWinRateGauge,
-  analyticsSlippageGauge,
-  analyticsFillRateGauge,
-} from '../../../../../src/telemetry/analyticsMetrics';
+import { authOptions } from '../../../lib/authOptions';
+
+type PerformanceSummary = {
+  runCount: number;
+  totalNetPnlUsd: number;
+  avgNetPnlUsd: number;
+  sharpeRatio: number | null;
+  maxDrawdownUsd: number | null;
+  winRate: number | null;
+  avgHoldingHours: number | null;
+};
+
+type TradeExecutionStats = {
+  avgSlippageBps: number | null;
+  medianSlippageBps: number | null;
+  fillRatePct: number | null;
+  avgFillDurationSec: number | null;
+};
+
+type AnalyticsSnapshot = {
+  performance: PerformanceSummary;
+  execution: TradeExecutionStats;
+  correlations: Array<{ assetA: string; assetB: string; correlation: number }>;
+};
+
+const EMPTY_SNAPSHOT: AnalyticsSnapshot = {
+  performance: {
+    runCount: 0,
+    totalNetPnlUsd: 0,
+    avgNetPnlUsd: 0,
+    sharpeRatio: null,
+    maxDrawdownUsd: null,
+    winRate: null,
+    avgHoldingHours: null,
+  },
+  execution: {
+    avgSlippageBps: null,
+    medianSlippageBps: null,
+    fillRatePct: null,
+    avgFillDurationSec: null,
+  },
+  correlations: [],
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -23,20 +56,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const clientId = session.user.id;
-    const pool = getPool();
-    const analyticsService = new PerformanceAnalyticsService(pool, clientId);
-    const snapshot = await analyticsService.fetchAnalytics({
-      lookbackDays: Number(req.query.lookbackDays || 30),
-    });
+    const lookbackDays = Number(req.query.lookbackDays || 30);
+    const baseUrl = process.env.ADMIN_API_URL;
+    const adminToken = process.env.ADMIN_API_TOKEN;
 
-    analyticsSharpeGauge.labels(clientId).set(snapshot.performance.sharpeRatio ?? 0);
-    analyticsMaxDrawdownGauge.labels(clientId).set(snapshot.performance.maxDrawdownUsd ?? 0);
-    analyticsWinRateGauge.labels(clientId).set(snapshot.performance.winRate ?? 0);
-    analyticsSlippageGauge.labels(clientId).set(snapshot.execution.avgSlippageBps ?? 0);
-    analyticsFillRateGauge.labels(clientId).set(snapshot.execution.fillRatePct ?? 0);
+    if (baseUrl && adminToken) {
+      const response = await fetch(`${baseUrl.replace(/\/$/, '')}/analytics/summary`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ clientId: session.user.id, lookbackDays }),
+      });
 
-    return res.status(200).json(snapshot);
+      if (response.ok) {
+        const payload = (await response.json()) as AnalyticsSnapshot;
+        return res.status(200).json(payload);
+      }
+    }
+
+    return res.status(200).json(EMPTY_SNAPSHOT);
   } catch (error) {
     console.error('[analytics] summary_error', error);
     return res.status(500).json({ error: 'failed_to_compute_analytics' });

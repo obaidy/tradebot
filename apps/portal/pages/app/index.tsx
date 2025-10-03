@@ -559,6 +559,58 @@ export default function Dashboard() {
     };
   }, [clientId, status]);
 
+  const refreshAnalytics = useCallback(
+    async (silent = false) => {
+      try {
+        if (!silent) {
+          setAnalyticsLoading(true);
+          setAnalyticsError(null);
+        }
+        const snapshot = await fetchJson('/api/analytics/summary');
+        setAnalytics(snapshot as AnalyticsSnapshot);
+      } catch (err) {
+        if (!silent) {
+          setAnalyticsError(err instanceof Error ? err.message : 'Failed to load analytics');
+        }
+      } finally {
+        if (!silent) {
+          setAnalyticsLoading(false);
+        }
+      }
+    },
+    []
+  );
+
+  const refreshSnapshot = useCallback(async () => {
+    const snapshot = await fetchJson('/api/client/snapshot');
+    applyClientSnapshotState(snapshot, {
+      setClientState,
+      setBillingInfo,
+    });
+    const history = await fetchJson('/api/client/history');
+    setRunHistory(history?.runs ?? []);
+    setGuardSnapshot(history?.guard ?? null);
+    setInventoryHistory(history?.inventory ?? []);
+    const agreementsRes = await fetchJson('/api/client/agreements');
+    setAgreements(agreementsRes?.agreements ?? []);
+    setAgreementRequirements(agreementsRes?.requirements ?? []);
+    setAckChecklist((prev) => {
+      const next = { ...prev };
+      const accepted = new Set(
+        (agreementsRes?.requirements ?? [])
+          .filter((req: any) => req.accepted)
+          .map((req: any) => req.documentType)
+      );
+      REQUIRED_DOCUMENTS.forEach((doc) => {
+        if (accepted.has(doc.key)) {
+          next[doc.key] = true;
+        }
+      });
+      return next;
+    });
+    await refreshPortfolio();
+  }, [refreshPortfolio]);
+
   useEffect(() => {
     refreshAnalytics();
     const interval = setInterval(() => refreshAnalytics(true), 60_000);
@@ -618,7 +670,7 @@ export default function Dashboard() {
       const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`;
       window.history.replaceState({}, '', newUrl);
     }
-  }, []);
+  }, [refreshSnapshot]);
 
   async function handlePlanCheckout(planId: string) {
     try {
@@ -666,7 +718,7 @@ export default function Dashboard() {
     }
   }
 
-  async function refreshSnapshot() {
+  const refreshSnapshot = useCallback(async () => {
     const snapshot = await fetchJson('/api/client/snapshot');
     applyClientSnapshotState(snapshot, {
       setClientState,
@@ -694,7 +746,7 @@ export default function Dashboard() {
       return next;
     });
     await refreshPortfolio();
-  }
+  }, [refreshPortfolio]);
 
   const refreshPortfolio = useCallback(async () => {
     try {
@@ -1057,28 +1109,6 @@ export default function Dashboard() {
       setError(err instanceof Error ? err.message : 'Kill request failed');
     }
   }
-
-  const refreshAnalytics = useCallback(
-    async (silent = false) => {
-      try {
-        if (!silent) {
-          setAnalyticsLoading(true);
-          setAnalyticsError(null);
-        }
-        const snapshot = await fetchJson('/api/analytics/summary');
-        setAnalytics(snapshot as AnalyticsSnapshot);
-      } catch (err) {
-        if (!silent) {
-          setAnalyticsError(err instanceof Error ? err.message : 'Failed to load analytics');
-        }
-      } finally {
-        if (!silent) {
-          setAnalyticsLoading(false);
-        }
-      }
-    },
-    []
-  );
 
   const planNameById = useMemo(() => {
     return plans.reduce<Map<string, string>>((acc, plan) => {

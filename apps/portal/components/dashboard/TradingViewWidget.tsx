@@ -20,10 +20,11 @@ export function TradingViewWidget({ symbol, interval = '60', theme = 'dark', hei
 
   useEffect(() => {
     if (typeof window === 'undefined' || !containerRef.current) return;
+    const containerEl = containerRef.current;
 
     const initialize = () => {
-      if (!containerRef.current) return;
-      containerRef.current.innerHTML = '';
+      if (!containerEl) return;
+      containerEl.innerHTML = '';
       if (window.TradingView?.widget) {
         new window.TradingView.widget({
           autosize: true,
@@ -37,7 +38,7 @@ export function TradingViewWidget({ symbol, interval = '60', theme = 'dark', hei
           enable_publishing: false,
           hide_legend: false,
           hide_side_toolbar: false,
-          container_id: containerRef.current.id,
+          container_id: containerEl.id,
           studies: ['STD;MACD'],
           withdateranges: true,
         });
@@ -51,8 +52,9 @@ export function TradingViewWidget({ symbol, interval = '60', theme = 'dark', hei
 
     const existingScript = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
     if (existingScript) {
-      existingScript.addEventListener('load', initialize, { once: true });
-      return () => existingScript.removeEventListener('load', initialize);
+      const handleLoad = () => initialize();
+      existingScript.addEventListener('load', handleLoad, { once: true });
+      return () => existingScript.removeEventListener('load', handleLoad);
     }
 
     const script = document.createElement('script');
@@ -64,8 +66,8 @@ export function TradingViewWidget({ symbol, interval = '60', theme = 'dark', hei
 
     return () => {
       script.onload = null;
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
+      if (containerEl) {
+        containerEl.innerHTML = '';
       }
     };
   }, [symbol, interval, theme]);
