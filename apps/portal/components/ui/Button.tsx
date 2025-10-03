@@ -1,6 +1,16 @@
 import { ButtonHTMLAttributes, CSSProperties, forwardRef } from 'react';
 import { palette, typography } from '../../styles/theme';
 
+type ButtonSize = 'sm' | 'md' | 'lg';
+
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'minimal';
+
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: ButtonVariant;
+  fullWidth?: boolean;
+  size?: ButtonSize;
+}
+
 const baseStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -27,7 +37,7 @@ const primaryStyle: CSSProperties = {
 
 const secondaryStyle: CSSProperties = {
   ...baseStyle,
-  border: `1px solid rgba(148, 163, 184, 0.4)`,
+  border: '1px solid rgba(148, 163, 184, 0.4)',
   background: 'rgba(15, 23, 42, 0.6)',
   color: palette.textPrimary,
   boxShadow: '0 12px 28px rgba(15, 23, 42, 0.35)',
@@ -37,58 +47,98 @@ const ghostStyle: CSSProperties = {
   ...baseStyle,
   padding: '0.75rem 1.25rem',
   background: 'transparent',
-  border: `1px solid rgba(148,163,184,0.24)`,
+  border: '1px solid rgba(148,163,184,0.24)',
   color: palette.textPrimary,
 };
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
+const minimalStyle: CSSProperties = {
+  ...baseStyle,
+  padding: '0.7rem 1.1rem',
+  background: 'transparent',
+  border: 'none',
+  color: palette.textPrimary,
+  boxShadow: 'none',
+};
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant;
-  fullWidth?: boolean;
+const sizeStyles: Record<ButtonSize, CSSProperties> = {
+  sm: {
+    padding: '0.6rem 1rem',
+    fontSize: '0.85rem',
+    gap: '0.4rem',
+    borderRadius: '12px',
+  },
+  md: {},
+  lg: {
+    padding: '1rem 1.8rem',
+    fontSize: '1rem',
+    borderRadius: '20px',
+  },
+};
+
+function getVariantStyle(variant: ButtonVariant): CSSProperties {
+  switch (variant) {
+    case 'primary':
+      return primaryStyle;
+    case 'secondary':
+      return secondaryStyle;
+    case 'ghost':
+      return ghostStyle;
+    case 'minimal':
+    default:
+      return minimalStyle;
+  }
 }
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(({ variant = 'primary', fullWidth, style, ...props }, ref) => {
-  const variantStyle = variant === 'primary' ? primaryStyle : variant === 'secondary' ? secondaryStyle : ghostStyle;
-  return (
-    <button
-      ref={ref}
-      style={{
-        ...variantStyle,
-        width: fullWidth ? '100%' : undefined,
-        ...style,
-      }}
-      {...props}
-      onMouseOver={(event) => {
-        if (props.onMouseOver) props.onMouseOver(event);
-        const target = event.currentTarget;
-        if (variant === 'primary') {
-          target.style.transform = 'translateY(-2px)';
-          target.style.boxShadow = '0 24px 48px rgba(99, 102, 241, 0.4)';
-        } else if (variant === 'secondary') {
-          target.style.borderColor = 'rgba(56, 189, 248, 0.45)';
-          target.style.background = 'rgba(15, 23, 42, 0.75)';
-        } else {
-          target.style.borderColor = 'rgba(56,189,248,0.35)';
-          target.style.background = 'rgba(56,189,248,0.1)';
-        }
-      }}
-      onMouseOut={(event) => {
-        if (props.onMouseOut) props.onMouseOut(event);
-        const target = event.currentTarget;
-        if (variant === 'primary') {
-          target.style.transform = 'translateY(0)';
-          target.style.boxShadow = primaryStyle.boxShadow || '';
-        } else if (variant === 'secondary') {
-          target.style.borderColor = (secondaryStyle.border as string) || 'rgba(148,163,184,0.4)';
-          target.style.background = secondaryStyle.background as string;
-        } else {
-          target.style.borderColor = ghostStyle.border as string;
-          target.style.background = ghostStyle.background as string;
-        }
-      }}
-    />
-  );
-});
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ variant = 'primary', fullWidth, size = 'md', style, ...props }, ref) => {
+    const variantStyle = getVariantStyle(variant);
+    const sizeStyle = sizeStyles[size] ?? sizeStyles.md;
+
+    return (
+      <button
+        ref={ref}
+        style={{
+          ...variantStyle,
+          ...sizeStyle,
+          width: fullWidth ? '100%' : undefined,
+          ...style,
+        }}
+        {...props}
+        onMouseOver={(event) => {
+          if (props.onMouseOver) props.onMouseOver(event);
+          const target = event.currentTarget;
+          if (variant === 'primary') {
+            target.style.transform = 'translateY(-2px)';
+            target.style.boxShadow = '0 24px 48px rgba(99, 102, 241, 0.4)';
+          } else if (variant === 'secondary') {
+            target.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+            target.style.background = 'rgba(15, 23, 42, 0.75)';
+          } else if (variant === 'ghost') {
+            target.style.borderColor = 'rgba(56,189,248,0.35)';
+            target.style.background = 'rgba(56,189,248,0.1)';
+          } else {
+            target.style.background = 'rgba(56,189,248,0.12)';
+          }
+        }}
+        onMouseOut={(event) => {
+          if (props.onMouseOut) props.onMouseOut(event);
+          const target = event.currentTarget;
+          if (variant === 'primary') {
+            target.style.transform = 'translateY(0)';
+            target.style.boxShadow = (primaryStyle.boxShadow as string) || '';
+          } else if (variant === 'secondary') {
+            target.style.border = typeof secondaryStyle.border === 'string' ? secondaryStyle.border : '';
+            target.style.background = secondaryStyle.background as string;
+          } else if (variant === 'ghost') {
+            target.style.border = typeof ghostStyle.border === 'string' ? ghostStyle.border : '';
+            target.style.background = ghostStyle.background as string;
+          } else {
+            target.style.background = minimalStyle.background as string;
+          }
+        }}
+      />
+    );
+  }
+);
 
 Button.displayName = 'Button';

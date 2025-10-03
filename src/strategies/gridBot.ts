@@ -25,6 +25,13 @@ import {
   GlassnodeOnChainMetricsProvider,
   PlaceholderOnChainMetricsProvider,
 } from '../services/intelligence/onChainProvider';
+import {
+  RestOptionsFlowDataProvider,
+  RestSocialSentimentProvider,
+  RestInstitutionalFlowProvider,
+  RestMacroEconomicDataProvider,
+  RestAlternativeDataProvider,
+} from '../services/intelligence/richDataProviders';
 import { RecentPerformanceService, RecentPerformanceMetrics } from '../services/performance/recentPerformance';
 import {
   intelligenceCompositeGauge,
@@ -98,6 +105,12 @@ function getBaseAssetFromPair(pair: string): string {
   return base?.toUpperCase?.() ?? pair;
 }
 
+function parseTimeout(value?: string): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 const newsSentimentCategories = (process.env.NEWS_SENTIMENT_CATEGORIES || '')
   .split(',')
   .map((s) => s.trim())
@@ -142,6 +155,51 @@ const cascadingNewsProvider: NewsSentimentProvider | undefined = (() => {
 const onChainProviderInstance = process.env.GLASSNODE_API_KEY
   ? new GlassnodeOnChainMetricsProvider({ apiKey: process.env.GLASSNODE_API_KEY })
   : new PlaceholderOnChainMetricsProvider();
+
+const optionsFlowProviderInstance = process.env.OPTIONS_FLOW_API_URL
+  ? new RestOptionsFlowDataProvider({
+      baseUrl: process.env.OPTIONS_FLOW_API_URL,
+      apiKey: process.env.OPTIONS_FLOW_API_KEY,
+      endpoint: process.env.OPTIONS_FLOW_API_ENDPOINT,
+      timeoutMs: parseTimeout(process.env.OPTIONS_FLOW_API_TIMEOUT_MS),
+    })
+  : undefined;
+
+const socialSentimentProviderInstance = process.env.SOCIAL_SENTIMENT_API_URL
+  ? new RestSocialSentimentProvider({
+      baseUrl: process.env.SOCIAL_SENTIMENT_API_URL,
+      apiKey: process.env.SOCIAL_SENTIMENT_API_KEY,
+      endpoint: process.env.SOCIAL_SENTIMENT_API_ENDPOINT,
+      timeoutMs: parseTimeout(process.env.SOCIAL_SENTIMENT_API_TIMEOUT_MS),
+    })
+  : undefined;
+
+const institutionalFlowProviderInstance = process.env.INSTITUTIONAL_FLOW_API_URL
+  ? new RestInstitutionalFlowProvider({
+      baseUrl: process.env.INSTITUTIONAL_FLOW_API_URL,
+      apiKey: process.env.INSTITUTIONAL_FLOW_API_KEY,
+      endpoint: process.env.INSTITUTIONAL_FLOW_API_ENDPOINT,
+      timeoutMs: parseTimeout(process.env.INSTITUTIONAL_FLOW_API_TIMEOUT_MS),
+    })
+  : undefined;
+
+const macroEconomicProviderInstance = process.env.MACRO_DATA_API_URL
+  ? new RestMacroEconomicDataProvider({
+      baseUrl: process.env.MACRO_DATA_API_URL,
+      apiKey: process.env.MACRO_DATA_API_KEY,
+      endpoint: process.env.MACRO_DATA_API_ENDPOINT,
+      timeoutMs: parseTimeout(process.env.MACRO_DATA_API_TIMEOUT_MS),
+    })
+  : undefined;
+
+const alternativeDataProviderInstance = process.env.ALTERNATIVE_DATA_API_URL
+  ? new RestAlternativeDataProvider({
+      baseUrl: process.env.ALTERNATIVE_DATA_API_URL,
+      apiKey: process.env.ALTERNATIVE_DATA_API_KEY,
+      endpoint: process.env.ALTERNATIVE_DATA_API_ENDPOINT,
+      timeoutMs: parseTimeout(process.env.ALTERNATIVE_DATA_API_TIMEOUT_MS),
+    })
+  : undefined;
 
 const sectorLimitConfig = parseJsonOr<Record<string, number>>(process.env.RISK_SECTOR_LIMITS, {
   general: 0.4,
@@ -2026,6 +2084,11 @@ export async function runGridOnce(
         },
         newsProvider: cascadingNewsProvider,
         onChainProvider: onChainProviderInstance,
+        optionsFlowProvider: optionsFlowProviderInstance,
+        socialSentimentProvider: socialSentimentProviderInstance,
+        institutionalFlowProvider: institutionalFlowProviderInstance,
+        macroEconomicProvider: macroEconomicProviderInstance,
+        alternativeDataProvider: alternativeDataProviderInstance,
       });
 
       const microstructure = await collectMicrostructureSnapshots(ex, pair, mid).catch(() => []);

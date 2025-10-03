@@ -2210,18 +2210,25 @@ export default function Dashboard() {
                 <Badge tone="primary">Runner controls</Badge>
                 <h2 style={{ margin: '0.75rem 0 0' }}>Guard rails</h2>
               </div>
-              <div className="dashboard-button-row">
-                <Button variant="secondary" onClick={handlePause} disabled={clientState.isPaused}>
+              <div className="dashboard-control-strip">
+                <Button variant="minimal" size="sm" onClick={handlePause} disabled={clientState.isPaused}>
                   Pause
                 </Button>
                 <Button
-                  variant="secondary"
+                  variant="primary"
+                  size="sm"
                   onClick={handleResume}
                   disabled={!clientState.isPaused || clientState.killRequested || billingInfo.autoPaused}
                 >
                   Resume
                 </Button>
-                <Button variant="ghost" onClick={handleKill} disabled={clientState.killRequested}>
+                <Button
+                  variant="minimal"
+                  size="sm"
+                  onClick={handleKill}
+                  disabled={clientState.killRequested}
+                  style={{ color: '#F87171' }}
+                >
                   Kill
                 </Button>
               </div>

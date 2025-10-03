@@ -595,6 +595,21 @@ section {
   gap: 0.6rem;
 }
 
+.dashboard-control-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  padding: 0.35rem;
+  border-radius: 18px;
+  background: rgba(8, 13, 25, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.dashboard-control-strip button {
+  flex: 0 0 auto;
+}
+
 .dashboard-grid-twocol {
   display: grid;
   gap: 1.75rem;
