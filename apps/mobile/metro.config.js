@@ -9,5 +9,9 @@ config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules,
   'react-native': path.resolve(projectRoot, 'node_modules/react-native'),
 };
+config.resolver.alias = {
+  ...(config.resolver.alias || {}),
+  '@': path.resolve(projectRoot, 'src'),
+};
 
 module.exports = config;
