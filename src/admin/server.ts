@@ -1,4 +1,5 @@
 import http, { IncomingMessage, ServerResponse } from 'http';
+import { Socket } from 'net';
 import { parse } from 'url';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -57,8 +58,14 @@ import {
   StrategyStatsRepository,
   TournamentsRepository,
 } from '../db/socialTradingRepo';
+import { createMobileIntegration } from '../mobile/server';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
+
+interface AdminServerOptions {
+  port?: number;
+  enableMobileRouter?: boolean;
+}
 
 interface RequestContext {
   req: IncomingMessage;
@@ -183,7 +190,12 @@ async function withErrorHandling(handler: () => Promise<void>, res: ServerRespon
   }
 }
 
-export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9300)) {
+export async function startAdminServer(options: AdminServerOptions = {}) {
+  const requestedPort =
+    options.port ?? Number(process.env.ADMIN_PORT || process.env.PORT || 9300);
+  const enableMobileRouter =
+    options.enableMobileRouter ??
+    (process.env.ENABLE_MOBILE_ROUTER || 'true').toLowerCase() !== 'false';
   const pool = getPool();
   await runMigrations(pool);
   const clientsRepo = new ClientsRepository(pool);
@@ -201,6 +213,7 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
   const tournamentsRepo = new TournamentsRepository(pool);
   const tradeApprovalRepo = new TradeApprovalRepository(pool);
   const complianceRepo = new ClientComplianceRepository(pool);
+  const mobileIntegration = enableMobileRouter ? createMobileIntegration(pool) : null;
 
   const REQUIRED_DOCUMENTS = [
     { documentType: 'tos', name: 'Terms of Service', version: APP_CONFIG.LEGAL.TOS_VERSION, file: 'terms' },
@@ -239,6 +252,21 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
   }
 
   const server = http.createServer(async (req, res) => {
+    if (mobileIntegration) {
+      try {
+        const handled = await mobileIntegration.handleRequest(req, res);
+        if (handled) {
+          return;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!res.writableEnded) {
+          sendJson(res, 500, { error: message });
+        }
+        return;
+      }
+    }
+
     const authHeader = req.headers.authorization;
     if (!ADMIN_TOKEN || authHeader !== `Bearer ${ADMIN_TOKEN}`) {
       unauthorized(res);
@@ -1841,8 +1869,16 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
     }, res);
   });
 
+  if (mobileIntegration) {
+    server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
+      if (!mobileIntegration.handleUpgrade(req, socket, head)) {
+        socket.destroy();
+      }
+    });
+  }
+
   const maxPortRetries = Number(process.env.ADMIN_PORT_RETRY_LIMIT || '5');
-  let currentPort = port;
+  let currentPort = requestedPort;
   let retriesLeft = maxPortRetries;
 
   await new Promise<void>((resolve, reject) => {
@@ -1886,6 +1922,7 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
         error: error instanceof Error ? error.message : String(error),
       });
     });
+    mobileIntegration?.close();
     server.close();
   };
 
