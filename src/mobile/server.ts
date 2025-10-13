@@ -74,6 +74,16 @@ function getMobileContext(pool: Pool): MobileContext {
     controlNotificationsRepo,
     authService,
   };
+  contextCache = {
+    pool,
+    mobileRepo,
+    clientsRepo,
+    strategyAllocationsRepo,
+    auditRepo,
+    controlNotificationsRepo,
+    authService,
+  };
+  console.log('[mobile] context initialised (shared Auth0 + repository cache)');
   return contextCache;
 }
 
@@ -211,16 +221,19 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
     return false;
   }
 
-  enableCors(res);
-
+  const resourcePath = parsedUrl.pathname.substring(MOBILE_PREFIX.length) || '/';
   const method = (req.method || 'GET').toUpperCase();
+  const logLabel = `[mobile] ${method} ${resourcePath}`;
+  console.log(`${logLabel} received`);
+
+  enableCors(res);
   if (method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    console.log(`${logLabel} -> 204 (CORS preflight)`);
     return true;
   }
 
-  const resourcePath = parsedUrl.pathname.substring(MOBILE_PREFIX.length);
   const {
     authService,
     mobileRepo,
@@ -281,8 +294,19 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
       return true;
     }
 
-    if (method === 'GET' && resourcePath === '/health') {
+    if (method === 'GET' && (resourcePath === '/health' || resourcePath === '/health/')) {
       sendJson(res, 200, { status: 'ok', service: 'mobile' });
+      console.log(`${logLabel} -> 200 (health)`);
+      return true;
+    }
+
+    if (method === 'GET' && (resourcePath === '/version' || resourcePath === '/version/')) {
+      sendJson(res, 200, {
+        service: 'mobile',
+        build: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || 'local-dev',
+        timestamp: new Date().toISOString(),
+      });
+      console.log(`${logLabel} -> 200 (version)`);
       return true;
     }
 
@@ -569,9 +593,11 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
     }
 
     notFound(res);
+    console.log(`${logLabel} -> 404 (unmatched)`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     sendError(res, 400, message);
+    console.warn(`${logLabel} -> 400`, message);
   }
 
   return true;
@@ -734,6 +760,7 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
       .handleRequest(req, res)
       .then((handled) => {
         if (!handled && !res.writableEnded) {
+          console.log('[mobile] passthrough request', req.method, req.url);
           notFound(res);
         }
       })
@@ -742,6 +769,7 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
         if (!res.writableEnded) {
           sendError(res, 500, message);
         }
+        console.warn('[mobile] request failed', req.method, req.url, message);
       });
   });
 
@@ -757,6 +785,6 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
 
   server.listen(requestedPort, () => {
     // eslint-disable-next-line no-console
-    console.log(`Mobile API available at http://0.0.0.0:${requestedPort}${MOBILE_PREFIX}`);
+    console.log(`Mobile API available at http://0.0.0.0:${requestedPort}${MOBILE_PREFIX} (standalone server)`);
   });
 }

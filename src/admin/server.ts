@@ -214,6 +214,11 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
   const tradeApprovalRepo = new TradeApprovalRepository(pool);
   const complianceRepo = new ClientComplianceRepository(pool);
   const mobileIntegration = enableMobileRouter ? createMobileIntegration(pool) : null;
+  console.log(
+    `[admin] mobile router enabled=${enableMobileRouter} port=${requestedPort} commit=${
+      process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'local-dev'
+    }`
+  );
 
   const REQUIRED_DOCUMENTS = [
     { documentType: 'tos', name: 'Terms of Service', version: APP_CONFIG.LEGAL.TOS_VERSION, file: 'terms' },
