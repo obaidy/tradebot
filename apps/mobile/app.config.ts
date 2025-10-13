@@ -37,6 +37,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     scheme: 'tradebot',
     version: '0.1.0',
     orientation: 'portrait',
+    entryPoint: './index.js',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
     splash: {

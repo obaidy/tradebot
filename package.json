@@ -28,7 +28,9 @@
     "mobile:ci": "npm run mobile:lint && npm run mobile:typecheck",
     "admin:approvals": "ts-node src/admin/approvalCli.ts",
     "admin:audit-anchor": "ts-node src/admin/auditAnchorCli.ts",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.893.0",
@@ -47,7 +49,10 @@
     "pg": "^8.16.3",
     "prom-client": "^15.1.3",
     "stripe": "^12.18.0",
-    "winston": "^3.8.2"
+    "winston": "^3.8.2",
+    "expo": "~51.0.28",
+    "react": "18.2.0",
+    "react-native": "0.74.5"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

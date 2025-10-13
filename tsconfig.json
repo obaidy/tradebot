@@ -8,5 +8,13 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "exclude": ["dist", "node_modules", "test", "scripts", "apps"]
+  "exclude": [
+    "dist",
+    "node_modules",
+    "test",
+    "scripts",
+    "apps"
+  ],
+  "include": ["src/**/*"],
+  "extends": "expo/tsconfig.base"
 }
