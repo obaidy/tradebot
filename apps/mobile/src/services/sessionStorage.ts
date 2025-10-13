@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import type { AuthTokens, UserProfile } from '@/state/slices/authSlice';
 
-const SESSION_KEY = 'tradebot/mobile/session';
+const SESSION_KEY = 'tradebot_mobile_session';
 
 export interface PersistedSession {
   tokens: AuthTokens;

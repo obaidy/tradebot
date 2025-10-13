@@ -11,7 +11,14 @@ React Native (Expo) client providing real-time monitoring, emergency controls, a
    ```bash
    npm run dev --workspace @tradebot/mobile
    ```
-3. Configure environment variables in `app.config.ts` or by setting `MOBILE_API_BASE_URL` / `MOBILE_WS_URL`.
+3. By default the client targets the hosted Render deployment at `https://tradebot-api.onrender.com/mobile`.  
+   To use a different backend, export `MOBILE_API_BASE_URL` (and optionally `MOBILE_WS_URL`) before running Expo, e.g.
+   ```bash
+   MOBILE_API_BASE_URL=http://localhost:9400/mobile \
+   MOBILE_WS_URL=ws://localhost:9400/mobile/ws \
+   npm run dev --workspace @tradebot/mobile
+   ```
+   You can also set `MOBILE_API_MODE=local` to fall back to the local defaults without redefining the URLs.
 
 ## Scripts
 - `npm run dev --workspace @tradebot/mobile` – start Expo in development mode.

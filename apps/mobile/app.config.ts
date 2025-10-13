@@ -1,33 +1,66 @@
 import { ConfigContext, ExpoConfig } from '@expo/config';
 
-const buildDefaultUrls = () => {
-  const adminUrl = (process.env.ADMIN_API_URL || '').trim().replace(/\/$/, '');
-  if (!adminUrl) {
-    return {
-      api: 'http://localhost:9400/mobile',
-      ws: 'ws://localhost:9400/mobile/ws',
-    };
-  }
+const REMOTE_BASE_URL = (process.env.MOBILE_REMOTE_BASE_URL || 'https://tradebot-api.onrender.com').trim();
+const LOCAL_DEFAULTS = {
+  api: 'http://localhost:9400/mobile',
+  ws: 'ws://localhost:9400/mobile/ws',
+};
+const REMOTE_DEFAULTS = deriveUrls(REMOTE_BASE_URL);
 
-  const api = `${adminUrl}/mobile`;
+function deriveUrls(baseUrl: string) {
+  const sanitized = baseUrl.replace(/\/$/, '');
   try {
-    const parsed = new URL(adminUrl);
-    parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
-    parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}/mobile/ws`;
+    const parsed = new URL(sanitized);
+    const wsUrl = new URL(parsed.toString());
+    wsUrl.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsUrl.pathname = `${parsed.pathname.replace(/\/$/, '')}/mobile/ws`;
+
     return {
-      api,
-      ws: parsed.toString(),
+      api: `${sanitized}/mobile`,
+      ws: wsUrl.toString(),
     };
   } catch {
+    return LOCAL_DEFAULTS;
+  }
+}
+
+function resolveDefaults() {
+  const explicitApi = (process.env.MOBILE_API_BASE_URL || '').trim();
+  const explicitWs = (process.env.MOBILE_WS_URL || '').trim();
+  if (explicitApi) {
     return {
-      api,
-      ws: 'ws://localhost:9400/mobile/ws',
+      api: explicitApi,
+      ws: explicitWs || deriveWsFromApi(explicitApi),
     };
   }
-};
+
+  const mode = (process.env.MOBILE_API_MODE || process.env.APP_ENV || '').toLowerCase();
+  if (mode === 'local' || mode === 'dev' || mode === 'development') {
+    return LOCAL_DEFAULTS;
+  }
+
+  const adminUrl = (process.env.ADMIN_API_URL || '').trim();
+  if (adminUrl && !adminUrl.includes('localhost')) {
+    return deriveUrls(adminUrl);
+  }
+
+  return REMOTE_DEFAULTS;
+}
+
+function deriveWsFromApi(apiUrl: string) {
+  try {
+    const parsed = new URL(apiUrl);
+    parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+    // preserve existing pathname (already contains /mobile)
+    parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}/ws`;
+    return parsed.toString();
+  } catch {
+    return LOCAL_DEFAULTS.ws;
+  }
+}
 
 export default ({ config }: ConfigContext): ExpoConfig => {
-  const defaults = buildDefaultUrls();
+  const defaults = resolveDefaults();
 
   return {
     ...config,
