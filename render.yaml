@@ -27,3 +27,40 @@ services:
         sync: false
       - key: EXPORT_PREFIX
         sync: false
+  - type: web
+    name: tradebot-api
+    env: node
+    plan: starter
+    region: oregon
+    autoDeploy: true
+    buildCommand: npm install && npm run build
+    startCommand: node dist/admin/server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: ADMIN_API_URL
+        sync: false
+      - key: ADMIN_API_TOKEN
+        sync: false
+      - key: PG_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: AUTH0_ISSUER_BASE_URL
+        sync: false
+      - key: AUTH0_CLIENT_ID
+        sync: false
+      - key: AUTH0_CLIENT_SECRET
+        sync: false
+      - key: MOBILE_JWT_SECRET
+        sync: false
+      - key: MOBILE_AUTH_AUDIENCE
+        sync: false
+      - key: MOBILE_ALLOWED_REDIRECTS
+        sync: false
+      - key: MOBILE_REDIRECT_SCHEMES
+        value: tradebot,exp,exp+tradebot-mobile
+      - key: ENABLE_MOBILE_ROUTER
+        value: "true"
+      - key: NODE_ENV
+        value: production
