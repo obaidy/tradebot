@@ -2,7 +2,8 @@
   "name": "tradebot-starter",
   "version": "0.1.0",
   "workspaces": [
-    "apps/portal"
+    "apps/portal",
+    "apps/mobile"
   ],
   "scripts": {
     "build": "tsc",
@@ -21,9 +22,16 @@
     "arbitrage:worker": "ts-node src/jobs/arbitrageWorker.ts",
     "portal:dev": "npm run dev --workspace portal",
     "portal:build": "npm run build --workspace portal",
-    "portal:start": "npm run start --workspace portal"
+    "portal:start": "npm run start --workspace portal",
+    "mobile:lint": "npm run lint --workspace @tradebot/mobile",
+    "mobile:typecheck": "npm run typecheck --workspace @tradebot/mobile",
+    "mobile:ci": "npm run mobile:lint && npm run mobile:typecheck",
+    "admin:approvals": "ts-node src/admin/approvalCli.ts",
+    "admin:audit-anchor": "ts-node src/admin/auditAnchorCli.ts",
+    "postinstall": "patch-package"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.893.0",
     "@aws-sdk/client-s3": "^3.893.0",
     "@aws-sdk/s3-request-presigner": "^3.893.0",
     "@opentelemetry/api": "^1.9.0",
@@ -49,10 +57,11 @@
     "@types/pg": "^8.15.5",
     "eslint": "^8.0.0",
     "hardhat": "^2.16.0",
+    "patch-package": "^8.0.1",
     "pg-mem": "^3.0.5",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.0.0",
+    "typescript": "5.1.6",
     "vitest": "^3.2.4"
   }
 }

@@ -17,6 +17,22 @@ export class AdminApiError extends Error {
   }
 }
 
+export interface TradeApproval {
+  id: number;
+  correlationId: string | null;
+  clientId: string;
+  strategyId: string | null;
+  tradeType: string;
+  thresholdReason: string | null;
+  amountUsd: number | null;
+  status: 'pending' | 'approved' | 'rejected';
+  requestedBy: string;
+  requestedAt: string;
+  approvedBy: string[] | null;
+  approvedAt: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
 async function adminRequest(path: string, init: RequestInit & { actor?: string } = {}) {
   const url = `${ADMIN_API_URL}${path}`;
   const headers: Record<string, string> = {
@@ -194,6 +210,56 @@ export async function deleteMarketplaceStrategy(listingId: string) {
   return adminRequest(`/social/strategies/${listingId}`, {
     method: 'DELETE',
   });
+}
+
+export async function adminFetchCompliance(clientId: string) {
+  return adminRequest(`/clients/${clientId}/compliance`);
+}
+
+export async function adminUpdateCompliance(
+  clientId: string,
+  payload: { status: string; provider?: string; riskScore?: number; referenceId?: string; metadata?: Record<string, unknown> }
+) {
+  return adminRequest(`/clients/${clientId}/compliance`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listTradeApprovals(params: { status?: string; clientId?: string } = {}) {
+  const search = new URLSearchParams();
+  if (params.status) search.set('status', params.status);
+  if (params.clientId) search.set('clientId', params.clientId);
+  const query = search.toString();
+  return adminRequest(`/approvals${query ? `?${query}` : ''}`) as Promise<TradeApproval[]>;
+}
+
+export async function approveTradeApproval(
+  approvalId: number,
+  options: { note?: string; metadata?: Record<string, unknown>; actor?: string } = {}
+) {
+  const payload: Record<string, unknown> = {};
+  if (options.metadata) payload.metadata = options.metadata;
+  if (options.note) payload.note = options.note;
+  return adminRequest(`/approvals/${approvalId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    actor: options.actor,
+  }) as Promise<TradeApproval>;
+}
+
+export async function rejectTradeApproval(
+  approvalId: number,
+  options: { reason?: string; metadata?: Record<string, unknown>; actor?: string } = {}
+) {
+  const payload: Record<string, unknown> = {};
+  if (options.metadata) payload.metadata = options.metadata;
+  if (options.reason) payload.reason = options.reason;
+  return adminRequest(`/approvals/${approvalId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    actor: options.actor,
+  }) as Promise<TradeApproval>;
 }
 
 export async function followStrategy(listingId: string, payload: {

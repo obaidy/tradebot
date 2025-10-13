@@ -1,9 +1,11 @@
 import crypto from 'crypto';
 import sodium from 'libsodium-wrappers';
+import { KmsSecretManager, isKmsPayload, parseEncryptionContext } from './kmsProvider';
 
 let sodiumReady: Promise<void> | null = null;
 let secretKey: Uint8Array | null = null;
 let keySourceFingerprint: string | null = null;
+let kmsManager: KmsSecretManager | null = null;
 
 function ensureSodium() {
   if (!sodiumReady) {
@@ -41,17 +43,26 @@ function getKeyFingerprint(rawKey: string) {
 }
 
 export async function initSecretManager(rawMasterKey?: string) {
+  if (!kmsManager && process.env.KMS_KEY_ID) {
+    kmsManager = new KmsSecretManager({
+      keyId: process.env.KMS_KEY_ID,
+      region: process.env.KMS_REGION,
+      endpoint: process.env.KMS_ENDPOINT,
+      encryptionContext: parseEncryptionContext(process.env.KMS_ENCRYPTION_CONTEXT),
+    });
+  }
+
   const providedKey = rawMasterKey ?? process.env.CLIENT_MASTER_KEY ?? process.env.MASTER_KEY;
-  if (!providedKey) {
-    throw new Error('CLIENT_MASTER_KEY env var is required to load client secrets');
+  if (providedKey) {
+    await ensureSodium();
+    const fingerprint = getKeyFingerprint(providedKey);
+    if (!secretKey || keySourceFingerprint !== fingerprint) {
+      secretKey = deriveKey(providedKey);
+      keySourceFingerprint = fingerprint;
+    }
+  } else if (!kmsManager) {
+    throw new Error('CLIENT_MASTER_KEY or KMS_KEY_ID env var is required to load client secrets');
   }
-  await ensureSodium();
-  const fingerprint = getKeyFingerprint(providedKey);
-  if (secretKey && keySourceFingerprint === fingerprint) {
-    return;
-  }
-  secretKey = deriveKey(providedKey);
-  keySourceFingerprint = fingerprint;
 }
 
 function requireKey() {
@@ -61,10 +72,14 @@ function requireKey() {
   return secretKey;
 }
 
-export function encryptSecret(plainText: string): string {
+export async function encryptSecret(plainText: string): Promise<string> {
   if (plainText === undefined || plainText === null) {
     throw new Error('Cannot encrypt empty secret');
   }
+  if (kmsManager) {
+    return kmsManager.encrypt(plainText);
+  }
+  await ensureSodium();
   const key = requireKey();
   const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
   const message = Buffer.from(String(plainText), 'utf8');
@@ -74,12 +89,20 @@ export function encryptSecret(plainText: string): string {
   return `${nonceB64}:${cipherB64}`;
 }
 
-export function decryptSecret(payload: string | null | undefined): string {
+export async function decryptSecret(payload: string | null | undefined): Promise<string> {
   if (!payload) {
     throw new Error('No secret payload provided');
   }
+  if (isKmsPayload(payload)) {
+    if (!kmsManager) {
+      throw new Error('KMS payload encountered but KMS is not configured');
+    }
+    return kmsManager.decrypt(payload);
+  }
+  await ensureSodium();
   const key = requireKey();
-  const parts = payload.split(':');
+  const rawPayload = payload as string;
+  const parts = rawPayload.split(':');
   if (parts.length !== 2) {
     throw new Error('Malformed secret payload');
   }
@@ -95,4 +118,3 @@ export function decryptSecret(payload: string | null | undefined): string {
 export function isSecretManagerReady() {
   return secretKey !== null;
 }
-

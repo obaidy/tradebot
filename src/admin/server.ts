@@ -30,6 +30,8 @@ import {
   replaceClientStrategyAllocations,
   deleteClientStrategyAllocation,
 } from './clientAdminActions';
+import { TradeApprovalRepository, TradeApprovalStatus } from '../db/tradeApprovalRepo';
+import { ClientComplianceRepository } from '../db/complianceRepo';
 import { ethers } from 'ethers';
 import { enqueuePaperRun, isPaperRunQueueEnabled } from '../jobs/paperRunQueue';
 import { enqueueClientTask, isClientTaskQueueEnabled } from '../jobs/clientTaskQueue';
@@ -123,6 +125,23 @@ function methodNotAllowed(res: ServerResponse) {
   sendJson(res, 405, { error: 'method_not_allowed' });
 }
 
+function toCsv(rows: Record<string, unknown>[], columns: { key: string; header: string }[]): string {
+  const header = columns.map((col) => col.header).join(',');
+  const lines = rows.map((row) =>
+    columns
+      .map((col) => {
+        const value = row[col.key];
+        if (value === null || value === undefined) return '';
+        const str = String(value);
+        return str.includes(',') || str.includes('"')
+          ? `"${str.replace(/"/g, '""')}"`
+          : str;
+      })
+      .join(',')
+  );
+  return [header, ...lines].join('\n');
+}
+
 async function createContext(req: IncomingMessage, res: ServerResponse): Promise<RequestContext> {
   const parsedUrl = parse(req.url ?? '/', false);
   const pathname = parsedUrl.pathname ?? '/';
@@ -180,6 +199,8 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
   const followersRepo = new StrategyFollowersRepository(pool);
   const statsRepo = new StrategyStatsRepository(pool);
   const tournamentsRepo = new TournamentsRepository(pool);
+  const tradeApprovalRepo = new TradeApprovalRepository(pool);
+  const complianceRepo = new ClientComplianceRepository(pool);
 
   const REQUIRED_DOCUMENTS = [
     { documentType: 'tos', name: 'Terms of Service', version: APP_CONFIG.LEGAL.TOS_VERSION, file: 'terms' },
@@ -260,6 +281,237 @@ export async function startAdminServer(port = Number(process.env.ADMIN_PORT || 9
       if (ctx.pathname === '/strategies' && ctx.method === 'GET') {
         const strategies = listStrategies();
         sendJson(res, 200, strategies);
+        return;
+      }
+
+      if (ctx.pathname === '/compliance/kyc' && ctx.method === 'POST') {
+        await withErrorHandling(async () => {
+          const expectedToken = process.env.COMPLIANCE_WEBHOOK_TOKEN || ADMIN_TOKEN;
+          if (expectedToken) {
+            const provided = getHeader(ctx.req, 'x-webhook-token');
+            if (provided !== expectedToken) {
+              sendJson(res, 401, { error: 'invalid_webhook_token' });
+              return;
+            }
+          }
+          const body = ctx.body ?? {};
+          const clientId = body.clientId ?? body.client_id;
+          if (typeof clientId !== 'string' || !clientId) {
+            throw new Error('client_id_required');
+          }
+          const status = body.status;
+          if (typeof status !== 'string' || !status) {
+            throw new Error('status_required');
+          }
+          const record = await complianceRepo.upsert({
+            clientId,
+            provider: body.provider ?? 'webhook',
+            status,
+            riskScore: typeof body.riskScore === 'number' ? body.riskScore : null,
+            referenceId: body.referenceId ?? body.caseId ?? null,
+            payload: body,
+          });
+          await auditRepo.addEntry({
+            clientId,
+            actor: 'compliance-webhook',
+            action: 'compliance_status_updated',
+            metadata: {
+              provider: record.provider,
+              status: record.status,
+              riskScore: record.riskScore,
+              referenceId: record.referenceId,
+            },
+          });
+          sendJson(res, 200, { ok: true });
+        }, res);
+        return;
+      }
+
+      if (ctx.pathname === '/approvals' && ctx.method === 'GET') {
+        await withErrorHandling(async () => {
+          const statusRaw = (ctx.query.get('status') || 'pending').toLowerCase();
+          const validStatuses: TradeApprovalStatus[] = ['pending', 'approved', 'rejected'];
+          const status = validStatuses.includes(statusRaw as TradeApprovalStatus)
+            ? (statusRaw as TradeApprovalStatus)
+            : 'pending';
+          const clientFilter = ctx.query.get('clientId') || ctx.query.get('client') || undefined;
+          const approvals = await tradeApprovalRepo.listByStatus(status, clientFilter ?? undefined);
+          sendJson(res, 200, approvals);
+        }, res);
+        return;
+      }
+
+      const approvalActionMatch = ctx.pathname.match(/^\/approvals\/(\d+)\/(approve|reject)$/);
+      if (approvalActionMatch) {
+        if (ctx.method !== 'POST') {
+          methodNotAllowed(res);
+          return;
+        }
+        const approvalId = Number(approvalActionMatch[1]);
+        if (!Number.isFinite(approvalId)) {
+          throw new Error('invalid_approval_id');
+        }
+        const action = approvalActionMatch[2];
+        const actor = resolveActor(ctx.req);
+        await withErrorHandling(async () => {
+          const bodyMetadata = ctx.body && typeof ctx.body.metadata === 'object' ? ctx.body.metadata : undefined;
+          if (action === 'approve') {
+            const note = typeof ctx.body?.note === 'string' ? ctx.body.note : undefined;
+            const metadataPatch = (bodyMetadata as Record<string, unknown> | undefined) ?? (note ? { approval_note: note } : undefined);
+            const record = await tradeApprovalRepo.markApproved(approvalId, actor, metadataPatch ?? undefined);
+            await auditRepo.addEntry({
+              clientId: record.clientId,
+              actor,
+              action: 'trade_approval_approved',
+              metadata: {
+                approvalId: record.id,
+                amountUsd: record.amountUsd,
+                correlationId: record.correlationId,
+              },
+            });
+            sendJson(res, 200, record);
+            return;
+          }
+          const reason = typeof ctx.body?.reason === 'string' ? ctx.body.reason : undefined;
+          const metadataPatch = (bodyMetadata as Record<string, unknown> | undefined) ?? (reason ? { rejection_reason: reason } : undefined);
+          const record = await tradeApprovalRepo.markRejected(approvalId, actor, metadataPatch ?? undefined);
+          const rejectionReason =
+            metadataPatch && typeof metadataPatch === 'object' && 'rejection_reason' in metadataPatch
+              ? (metadataPatch as Record<string, unknown>).rejection_reason
+              : null;
+          await auditRepo.addEntry({
+            clientId: record.clientId,
+            actor,
+            action: 'trade_approval_rejected',
+            metadata: {
+              approvalId: record.id,
+              amountUsd: record.amountUsd,
+              correlationId: record.correlationId,
+              reason: rejectionReason,
+            },
+          });
+          sendJson(res, 200, record);
+        }, res);
+        return;
+      }
+
+      if (ctx.pathname === '/exports/accounting' && ctx.method === 'GET') {
+        await withErrorHandling(async () => {
+          const format = (ctx.query.get('format') || 'csv').toLowerCase();
+          const clientIdFilter = ctx.query.get('clientId') || ctx.query.get('client') || null;
+          const start = ctx.query.get('start');
+          const end = ctx.query.get('end');
+          const params: any[] = [];
+          const conditions: string[] = [];
+          if (clientIdFilter) {
+            params.push(clientIdFilter);
+            conditions.push(`f.client_id = $${params.length}`);
+          }
+          if (start) {
+            params.push(start);
+            conditions.push(`f.fill_timestamp >= $${params.length}`);
+          }
+          if (end) {
+            params.push(end);
+            conditions.push(`f.fill_timestamp <= $${params.length}`);
+          }
+          const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+          const query = `
+            SELECT f.client_id, f.run_id, r.exchange, f.pair, f.side, f.price, f.amount, f.fee,
+                   f.fill_timestamp
+            FROM bot_fills f
+            JOIN bot_runs r ON r.run_id = f.run_id
+            ${whereClause}
+            ORDER BY f.fill_timestamp ASC
+          `;
+          const result = await pool.query(query, params);
+          const rows = result.rows.map((row) => {
+            const [base, quote] = typeof row.pair === 'string' ? row.pair.split('/') : ['UNKNOWN', 'UNKNOWN'];
+            const quoteAmount = Number(row.amount) * Number(row.price);
+            return {
+              date: new Date(row.fill_timestamp).toISOString(),
+              type: row.side === 'buy' ? 'Buy' : 'Sell',
+              baseAmount: Number(row.amount),
+              baseCurrency: base,
+              quoteAmount: quoteAmount,
+              quoteCurrency: quote,
+              price: Number(row.price),
+              feeAmount: row.fee !== null ? Number(row.fee) : 0,
+              feeCurrency: quote,
+              clientId: row.client_id,
+              runId: row.run_id,
+              exchange: row.exchange,
+            };
+          });
+
+          if (format === 'json') {
+            sendJson(res, 200, rows);
+          } else {
+            const csv = toCsv(rows, [
+              { key: 'date', header: 'Date' },
+              { key: 'type', header: 'Type' },
+              { key: 'baseAmount', header: 'Base Amount' },
+              { key: 'baseCurrency', header: 'Base Currency' },
+              { key: 'quoteAmount', header: 'Quote Amount' },
+              { key: 'quoteCurrency', header: 'Quote Currency' },
+              { key: 'price', header: 'Price' },
+              { key: 'feeAmount', header: 'Fee Amount' },
+              { key: 'feeCurrency', header: 'Fee Currency' },
+              { key: 'clientId', header: 'Client ID' },
+              { key: 'runId', header: 'Run ID' },
+              { key: 'exchange', header: 'Exchange' },
+            ]);
+            res.writeHead(200, {
+              'Content-Type': 'text/csv',
+              'Content-Disposition': `attachment; filename="accounting_${Date.now()}.csv"`,
+            });
+            res.end(csv);
+          }
+        }, res);
+        return;
+      }
+
+      const complianceMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/compliance$/);
+      if (complianceMatch) {
+        const clientId = decodeURIComponent(complianceMatch[1]);
+        if (ctx.method === 'GET') {
+          await withErrorHandling(async () => {
+            const record = await complianceRepo.getByClient(clientId);
+            sendJson(res, 200, record ?? {});
+          }, res);
+          return;
+        }
+        if (ctx.method === 'POST') {
+          await withErrorHandling(async () => {
+            const body = ctx.body ?? {};
+            const status = body.status;
+            if (typeof status !== 'string' || !status) {
+              throw new Error('status_required');
+            }
+            const record = await complianceRepo.upsert({
+              clientId,
+              provider: body.provider ?? null,
+              status,
+              riskScore: typeof body.riskScore === 'number' ? body.riskScore : null,
+              referenceId: body.referenceId ?? null,
+              payload: body.payload && typeof body.payload === 'object' ? body.payload : null,
+            });
+            await auditRepo.addEntry({
+              clientId,
+              actor: resolveActor(ctx.req),
+              action: 'compliance_status_updated',
+              metadata: {
+                provider: record.provider,
+                status: record.status,
+                riskScore: record.riskScore,
+                referenceId: record.referenceId,
+              },
+            });
+            sendJson(res, 200, record);
+          }, res);
+          return;
+        }
+        methodNotAllowed(res);
         return;
       }
 

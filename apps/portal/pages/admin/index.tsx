@@ -102,6 +102,15 @@ interface PortfolioAllocationForm {
   enabled: boolean;
 }
 
+interface ComplianceStatus {
+  status?: string;
+  provider?: string | null;
+  riskScore?: number | null;
+  referenceId?: string | null;
+  updatedAt?: string | null;
+  lastPayload?: Record<string, unknown> | null;
+}
+
 function formatDate(value: string | null) {
   if (!value) return '—';
   return new Date(value).toLocaleString();
@@ -125,6 +134,7 @@ export default function AdminDashboard() {
   const [portfolioSaving, setPortfolioSaving] = useState(false);
   const [portfolioMessage, setPortfolioMessage] = useState<string | null>(null);
   const [portfolioError, setPortfolioError] = useState<string | null>(null);
+  const [complianceStatus, setComplianceStatus] = useState<ComplianceStatus | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -169,12 +179,22 @@ export default function AdminDashboard() {
           }))
         );
         setPortfolioDirty(false);
+        try {
+          const compliance = await fetchJson<ComplianceStatus>(
+            `/api/admin/clients/${encodeURIComponent(clientId)}/compliance`
+          );
+          setComplianceStatus(compliance);
+        } catch (err) {
+          setComplianceStatus(null);
+          console.warn('[portal-admin] Failed to load compliance status', err);
+        }
       } catch (err) {
         setPortfolioAllocations([]);
         setPortfolioPlan(null);
         setPortfolioDraft([]);
         setPortfolioDirty(false);
         setPortfolioError(err instanceof Error ? err.message : 'Failed to load portfolio');
+        setComplianceStatus(null);
       }
     },
     []
@@ -647,6 +667,37 @@ export default function AdminDashboard() {
           {message ? (
             <Card elevation="none" glass style={{ border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)' }}>
               {message}
+            </Card>
+          ) : null}
+          {complianceStatus ? (
+            <Card style={{ display: 'grid', gap: '0.6rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                <div>
+                  <Badge tone="primary">Compliance</Badge>
+                  <h2 style={{ margin: '0.5rem 0 0' }}>KYC / AML Status</h2>
+                </div>
+                <Badge
+                  tone=
+                    {complianceStatus.status === 'approved'
+                      ? 'success'
+                      : complianceStatus.status === 'review'
+                      ? 'warning'
+                      : 'neutral'}
+                >
+                  {(complianceStatus.status ?? 'unknown').toUpperCase()}
+                </Badge>
+              </div>
+              <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', color: '#94A3B8', fontSize: '0.9rem' }}>
+                {complianceStatus.provider ? <span>Provider: {complianceStatus.provider}</span> : null}
+                {typeof complianceStatus.riskScore === 'number' ? <span>Risk Score: {complianceStatus.riskScore}</span> : null}
+                {complianceStatus.referenceId ? <span>Reference: {complianceStatus.referenceId}</span> : null}
+                {complianceStatus.updatedAt ? <span>Updated: {formatDate(complianceStatus.updatedAt)}</span> : null}
+              </div>
+              {complianceStatus.lastPayload ? (
+                <pre style={{ margin: 0, background: 'rgba(15,23,42,0.6)', padding: '0.75rem', borderRadius: 12 }}>
+                  {JSON.stringify(complianceStatus.lastPayload, null, 2)}
+                </pre>
+              ) : null}
             </Card>
           ) : null}
 

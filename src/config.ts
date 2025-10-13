@@ -41,5 +41,22 @@ export const CONFIG = {
     ATTEMPTS: Number(process.env.EXCHANGE_RETRY_ATTEMPTS || '5'),
     DELAY_MS: Number(process.env.EXCHANGE_RETRY_DELAY_MS || '500'),
     BACKOFF: Number(process.env.EXCHANGE_RETRY_BACKOFF || '2'),
+  },
+  MOBILE: {
+    PORT: Number(process.env.MOBILE_API_PORT || '9400'),
+    JWT_SECRET: process.env.MOBILE_JWT_SECRET || 'change-me-mobile',
+    AUTH_CLIENT_ID: process.env.MOBILE_AUTH_CLIENT_ID || process.env.AUTH0_CLIENT_ID || '',
+    AUTH_AUDIENCE: process.env.MOBILE_AUTH_AUDIENCE || '',
+    ACCESS_TOKEN_TTL_SECONDS: Number(process.env.MOBILE_ACCESS_TOKEN_TTL_SECONDS || '600'),
+    REFRESH_TOKEN_TTL_DAYS: Number(process.env.MOBILE_REFRESH_TOKEN_TTL_DAYS || '30'),
+    FORCE_MFA: (process.env.MOBILE_FORCE_MFA || 'false').toLowerCase() === 'true',
+    REDIRECT_SCHEMES: (process.env.MOBILE_REDIRECT_SCHEMES || 'tradebot')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+    ALLOWED_REDIRECTS: (process.env.MOBILE_ALLOWED_REDIRECTS || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
   }
 };

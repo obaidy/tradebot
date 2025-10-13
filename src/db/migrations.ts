@@ -124,6 +124,41 @@ const MIGRATION_QUERIES: string[] = [
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
   `CREATE INDEX IF NOT EXISTS idx_client_audit_client_created ON client_audit_log(client_id, created_at DESC);`,
+  `ALTER TABLE client_audit_log ADD COLUMN IF NOT EXISTS prev_hash TEXT;`,
+  `ALTER TABLE client_audit_log ADD COLUMN IF NOT EXISTS hash TEXT;`,
+  `CREATE TABLE IF NOT EXISTS client_audit_anchors (
+      id SERIAL PRIMARY KEY,
+      anchor_date DATE NOT NULL,
+      merkle_root TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(anchor_date)
+    );`,
+  `CREATE TABLE IF NOT EXISTS client_compliance_status (
+      client_id TEXT PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE,
+      provider TEXT,
+      status TEXT NOT NULL,
+      risk_score NUMERIC,
+      reference_id TEXT,
+      last_payload JSONB,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE TABLE IF NOT EXISTS trade_approvals (
+      id SERIAL PRIMARY KEY,
+      correlation_id TEXT,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      strategy_id TEXT,
+      trade_type TEXT NOT NULL,
+      threshold_reason TEXT,
+      amount_usd NUMERIC,
+      status TEXT NOT NULL DEFAULT 'pending',
+      requested_by TEXT NOT NULL,
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      approved_by TEXT[],
+      approved_at TIMESTAMPTZ,
+      metadata JSONB
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_trade_approvals_client_status ON trade_approvals(client_id, status);`,
+  `CREATE INDEX IF NOT EXISTS idx_trade_approvals_correlation ON trade_approvals(correlation_id);`,
   `CREATE TABLE IF NOT EXISTS client_workers (
       worker_id TEXT PRIMARY KEY,
       client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
@@ -250,7 +285,54 @@ const MIGRATION_QUERIES: string[] = [
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
   `CREATE INDEX IF NOT EXISTS idx_social_tournament_entries_tournament ON social_tournament_entries(tournament_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_social_tournament_entries_client ON social_tournament_entries(client_id);`
+  `CREATE INDEX IF NOT EXISTS idx_social_tournament_entries_client ON social_tournament_entries(client_id);`,
+  `CREATE TABLE IF NOT EXISTS mobile_control_notifications (
+      id SERIAL PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      action TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      strategy_id TEXT,
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_mobile_control_notifications_client ON mobile_control_notifications(client_id, created_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS mobile_auth_states (
+      state TEXT PRIMARY KEY,
+      code_challenge TEXT NOT NULL,
+      redirect_uri TEXT NOT NULL,
+      device_id TEXT,
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE TABLE IF NOT EXISTS mobile_auth_challenges (
+      challenge_id TEXT PRIMARY KEY,
+      mfa_token TEXT NOT NULL,
+      state TEXT NOT NULL,
+      device_id TEXT,
+      methods TEXT[] NOT NULL DEFAULT ARRAY['totp'],
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE TABLE IF NOT EXISTS mobile_device_sessions (
+      session_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      user_email TEXT,
+      user_name TEXT,
+      plan TEXT,
+      device_id TEXT NOT NULL,
+      refresh_token_hash TEXT NOT NULL,
+      access_token_expires_at TIMESTAMPTZ NOT NULL,
+      roles TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+      client_ids TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+      platform TEXT,
+      push_token TEXT,
+      metadata JSONB,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_mobile_device_sessions_user ON mobile_device_sessions(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_mobile_device_sessions_refresh ON mobile_device_sessions(refresh_token_hash);`
 ];
 
 const ranPools = new WeakSet<Pool>();

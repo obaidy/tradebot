@@ -1,0 +1,69 @@
+{
+  "spacingUnit": 8,
+  "radii": {
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24
+  },
+  "typography": {
+    "fontFamily": "System",
+    "weights": {
+      "regular": 400,
+      "medium": 600,
+      "bold": 700
+    },
+    "sizes": {
+      "xs": 12,
+      "sm": 14,
+      "md": 16,
+      "lg": 20,
+      "xl": 24,
+      "hero": 32
+    }
+  },
+  "shadows": {
+    "sm": {
+      "shadowColor": "#000000",
+      "shadowOpacity": 0.12,
+      "shadowRadius": 6,
+      "elevation": 3
+    },
+    "md": {
+      "shadowColor": "#000000",
+      "shadowOpacity": 0.18,
+      "shadowRadius": 12,
+      "elevation": 6
+    }
+  },
+  "colors": {
+    "dark": {
+      "background": "#050710",
+      "surface": "#0B1020",
+      "surfaceAlt": "#131A2F",
+      "border": "#1F2942",
+      "textPrimary": "#F4F7FF",
+      "textSecondary": "#8F9BB3",
+      "accent": "#3A7BFA",
+      "accentSoft": "#274B8F",
+      "positive": "#3BD39C",
+      "negative": "#FF6B6B",
+      "warning": "#F5A623",
+      "overlay": "rgba(8, 12, 24, 0.65)"
+    },
+    "light": {
+      "background": "#F7F9FC",
+      "surface": "#FFFFFF",
+      "surfaceAlt": "#EFF3FB",
+      "border": "#D6DEED",
+      "textPrimary": "#191F33",
+      "textSecondary": "#62718A",
+      "accent": "#2F6AF5",
+      "accentSoft": "#C7D5FF",
+      "positive": "#1E9E73",
+      "negative": "#D94D4D",
+      "warning": "#C7791F",
+      "overlay": "rgba(25, 31, 51, 0.45)"
+    }
+  }
+}

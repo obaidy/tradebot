@@ -1,8 +1,81 @@
 import http from 'http';
 import { Pool } from 'pg';
 import { CONFIG } from '../config';
+import { logger } from '../utils/logger';
 
 let serverStarted = false;
+
+const ipPatterns = (process.env.DASHBOARD_ALLOW_IPS || '')
+  .split(',')
+  .map((entry) => entry.trim())
+  .filter(Boolean);
+const blockCountryCodes = (process.env.DASHBOARD_BLOCK_COUNTRY_CODES || '')
+  .split(',')
+  .map((entry) => entry.trim().toUpperCase())
+  .filter(Boolean);
+const allowCountryCodes = (process.env.DASHBOARD_ALLOW_COUNTRY_CODES || '')
+  .split(',')
+  .map((entry) => entry.trim().toUpperCase())
+  .filter(Boolean);
+
+function normalizeIp(ip: string | undefined | null): string {
+  if (!ip) return '';
+  if (ip.startsWith('::ffff:')) {
+    return ip.substring(7);
+  }
+  return ip;
+}
+
+function matchIpPattern(ip: string, pattern: string): boolean {
+  if (pattern === '*') return true;
+  if (pattern.includes('*')) {
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`^${escaped.replace(/\\\*/g, '.*')}$`);
+    return regex.test(ip);
+  }
+  return ip === pattern;
+}
+
+function isIpAllowed(ip: string): boolean {
+  if (!ipPatterns.length) return true;
+  return ipPatterns.some((pattern) => matchIpPattern(ip, pattern));
+}
+
+function resolveCountry(req: http.IncomingMessage): string | null {
+  const candidates = [
+    req.headers['cf-ipcountry'],
+    req.headers['x-geo-country'],
+    req.headers['x-country-code'],
+    req.headers['x-vercel-ip-country'],
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const value = Array.isArray(candidate) ? candidate[0] : candidate;
+    if (typeof value === 'string' && value.length) {
+      return value.toUpperCase();
+    }
+  }
+  return null;
+}
+
+function enforceNetworkPolicy(req: http.IncomingMessage): { allowed: boolean; reason?: string } {
+  const forwarded = req.headers['x-forwarded-for'];
+  const forwardedIp = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0];
+  const remoteIp = normalizeIp(forwardedIp || req.socket.remoteAddress || '');
+
+  if (!isIpAllowed(remoteIp)) {
+    return { allowed: false, reason: `ip_blocked:${remoteIp}` };
+  }
+
+  const country = resolveCountry(req);
+  if (allowCountryCodes.length && country && !allowCountryCodes.includes(country)) {
+    return { allowed: false, reason: `country_not_allowed:${country}` };
+  }
+  if (blockCountryCodes.length && country && blockCountryCodes.includes(country)) {
+    return { allowed: false, reason: `country_blocked:${country}` };
+  }
+  return { allowed: true };
+}
 
 function renderHtml(data: {
   run: any;
@@ -112,6 +185,17 @@ export function startDashboardServer(
   const requestedPort = typeof port === 'number' ? port : envPort;
   const listenPort = Number.isFinite(requestedPort) && requestedPort! > 0 && requestedPort! < 65536 ? requestedPort! : 9102;
   const server = http.createServer(async (req, res) => {
+    const networkCheck = enforceNetworkPolicy(req);
+    if (!networkCheck.allowed) {
+      logger?.warn?.('dashboard_request_blocked', {
+        event: 'dashboard_request_blocked',
+        reason: networkCheck.reason,
+        path: req.url,
+      });
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Access denied', reason: networkCheck.reason }));
+      return;
+    }
     try {
       if (req.url === '/' && req.method === 'GET') {
         const data = await fetchDashboardData(pool, clientId);

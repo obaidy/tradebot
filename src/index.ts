@@ -7,6 +7,7 @@ import { startKillSwitchServer } from './guard/killSwitch';
 import { circuitBreaker } from './guard/circuitBreaker';
 import { setLogIngestionWebhook } from './utils/logger';
 import { startDashboardServer } from './dashboard/server';
+import { startMobileServer } from './mobile/server';
 import { getPool } from './db/pool';
 import { runMigrations } from './db/migrations';
 
@@ -24,6 +25,7 @@ async function main() {
   startMetricsServer();
   startKillSwitchServer();
   startDashboardServer(pool);
+  startMobileServer(pool);
   if (process.env.LOG_INGEST_WEBHOOK) {
     setLogIngestionWebhook(process.env.LOG_INGEST_WEBHOOK);
   }

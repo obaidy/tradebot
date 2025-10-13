@@ -282,9 +282,9 @@ export class ClientConfigService {
       throw new Error(`Missing API credentials for client ${clientId} on exchange ${exchangeId}`);
     }
     await initSecretManager();
-    const apiKey = decryptSecret(credentialsRow.apiKeyEnc);
-    const apiSecret = decryptSecret(credentialsRow.apiSecretEnc);
-    const passphrase = credentialsRow.passphraseEnc ? decryptSecret(credentialsRow.passphraseEnc) : null;
+    const apiKey = await decryptSecret(credentialsRow.apiKeyEnc);
+    const apiSecret = await decryptSecret(credentialsRow.apiSecretEnc);
+    const passphrase = credentialsRow.passphraseEnc ? await decryptSecret(credentialsRow.passphraseEnc) : null;
 
     const portfolio = await this.getStrategyPortfolio(clientId);
 
@@ -314,9 +314,9 @@ export class ClientConfigService {
   }): Promise<ClientApiCredentialRow> {
     this.ensureAllowed(input.clientId);
     await initSecretManager();
-    const apiKeyEnc = encryptSecret(input.apiKey);
-    const apiSecretEnc = encryptSecret(input.apiSecret);
-    const passphraseEnc = input.passphrase ? encryptSecret(input.passphrase) : null;
+    const apiKeyEnc = await encryptSecret(input.apiKey);
+    const apiSecretEnc = await encryptSecret(input.apiSecret);
+    const passphraseEnc = input.passphrase ? await encryptSecret(input.passphrase) : null;
     return this.credentialsRepo.upsert({
       clientId: input.clientId,
       exchangeName: input.exchangeName,
@@ -334,7 +334,7 @@ export class ClientConfigService {
   }): Promise<ClientStrategySecretRow> {
     this.ensureAllowed(input.clientId);
     await initSecretManager();
-    const secretEnc = encryptSecret(input.secret);
+    const secretEnc = await encryptSecret(input.secret);
     const upsertPayload: ClientStrategySecretUpsert = {
       clientId: input.clientId,
       strategyId: input.strategyId,
@@ -352,7 +352,7 @@ export class ClientConfigService {
     const row = await this.strategySecretsRepo.get(clientId, strategyId);
     if (!row) return null;
     await initSecretManager();
-    const secret = decryptSecret(row.secretEnc);
+    const secret = await decryptSecret(row.secretEnc);
     return { row, secret };
   }
 

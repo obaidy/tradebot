@@ -234,7 +234,7 @@ async function main() {
               break;
             }
             await initSecretManager();
-            const privateKey = decryptSecret(secretRow.secretEnc);
+            const privateKey = await decryptSecret(secretRow.secretEnc);
             strategyConfig = { ...(strategyConfig ?? {}), privateKey };
             let secretMetadata = { ...(secretRow.metadata ?? {}) } as Record<string, unknown>;
             updateStrategySecretMetadata = async (patch: Record<string, unknown>) => {

@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "TradeBot",
+    "slug": "tradebot-starter",
+    "version": "1.0.0",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "scheme": "tradebot",
+    "owner": "aka.obaidy89",
+    "ios": {
+      "bundleIdentifier": "com.obaidy.tradebot",
+      "buildNumber": "1.0.0",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used for ... (if needed)",
+        "NSPhotoLibraryUsageDescription": "Used for ... (if needed)",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "teamId": "PBE3E2NTXB"
+    },
+    "android": {
+      "package": "com.obaidy.tradebot",
+      "versionCode": 1
+    },
+    "extra": {
+      "eas": {
+        "projectId": "ae8625be-fffb-4444-b7a1-26168ad40827"
+      }
+    }
+  }
+}

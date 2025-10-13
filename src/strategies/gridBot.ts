@@ -9,6 +9,7 @@ import { Telegram } from '../alerts/telegram';
 import { getPool } from '../db/pool';
 import { runMigrations } from '../db/migrations';
 import { RunsRepository, OrdersRepository, FillsRepository, InventoryRepository } from '../db/repositories';
+import { TradeApprovalRepository } from '../db/tradeApprovalRepo';
 import { reconcileOpenOrders } from '../services/reconciliation';
 import { analyzeRegime } from '../analytics/regime';
 import {
@@ -53,6 +54,9 @@ import { startSpan } from '../telemetry/tracing';
 import { ClientConfigService } from '../services/clientConfig';
 import { getRealtimeTicker } from '../services/marketData/realtimeTicker';
 import { binanceStreamingGateway, StreamingSymbolHealth } from '../services/streaming/binanceGateway';
+import { ClientAuditLogRepository } from '../db/auditLogRepo';
+import { TradeApprovalPolicy, ApprovalRequiredError } from '../guard/tradeApprovalPolicy';
+import { TradeAnomalyMonitor } from '../guard/anomalyMonitor';
 
 type ExchangeOrder = {
   id?: string;
@@ -1760,6 +1764,10 @@ export async function runGridOnce(
 ): Promise<GridPlan | void> {
   const pool = getPool();
   await runMigrations(pool);
+  const auditLogRepo = new ClientAuditLogRepository(pool);
+  const tradeApprovalRepo = new TradeApprovalRepository(pool);
+  const approvalPolicy = new TradeApprovalPolicy(tradeApprovalRepo, auditLogRepo);
+  const anomalyMonitor = new TradeAnomalyMonitor(auditLogRepo);
   const clientId = options.clientId ?? CONFIG.RUN.CLIENT_ID;
   const adminOverrideIds = (process.env.ADMIN_LIVE_OVERRIDE_IDS || '')
     .split(',')
@@ -1985,6 +1993,10 @@ export async function runGridOnce(
     bankrollUsd = Math.min(allocationUsdOverride, bankrollUsd);
   }
   const defaultPerTradePct = clientProfile.risk.maxPerTradePct;
+  const baselinePerTradeUsd =
+    clientProfile.risk.perTradeUsd !== undefined && clientProfile.risk.perTradeUsd !== null
+      ? clientProfile.risk.perTradeUsd
+      : bankrollUsd * defaultPerTradePct;
   let perTradeUsdOrig =
     perTradeUsdEnv !== undefined
       ? Number(perTradeUsdEnv)
@@ -2308,6 +2320,46 @@ export async function runGridOnce(
     },
     plannedExposureUsd,
   };
+
+  const approvalActor = options.actor ?? 'system';
+  try {
+    await approvalPolicy.ensureApproved({
+      clientId,
+      strategyId: 'grid',
+      correlationId: runId,
+      amountUsd: plannedExposureUsd,
+      requestedBy: approvalActor,
+      metadata: {
+        runMode,
+        perTradeUsd,
+        plannedExposureUsd,
+        gridSteps,
+      },
+    });
+  } catch (err) {
+    if (err instanceof ApprovalRequiredError) {
+      logger.warn('grid_run_requires_approval', {
+        event: 'grid_run_requires_approval',
+        clientId,
+        runId,
+        plannedExposureUsd,
+        threshold: process.env.TRADE_APPROVAL_THRESHOLD_USD,
+        approvalId: err.approval.id,
+      });
+    }
+    throw err;
+  }
+
+  await anomalyMonitor.evaluate({
+    clientId,
+    runId,
+    strategyId: 'grid',
+    amountUsd: plannedExposureUsd,
+    perTradeUsd,
+    baselinePerTradeUsd,
+    compositeScore: intelligenceSummary?.regime?.compositeScore ?? null,
+    actor: approvalActor,
+  });
 
   const activeRunMeta = await runsRepo.getActiveRunMetadata();
   const activePairs = new Set(

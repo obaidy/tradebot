@@ -59,6 +59,23 @@ export class ClientsRepository {
     return res.rows.map((row) => this.mapRow(row));
   }
 
+  async listByOwners(identifiers: string[]): Promise<ClientRow[]> {
+    if (!identifiers.length) {
+      return [];
+    }
+    const exact = Array.from(new Set(identifiers.filter(Boolean)));
+    const lowered = exact.map((value) => value.toLowerCase());
+    const res = await this.pool.query(
+      `SELECT * FROM clients
+       WHERE owner = ANY($1::text[])
+          OR lower(owner) = ANY($2::text[])
+          OR lower(coalesce(contact_info->>'email', '')) = ANY($2::text[])
+       ORDER BY created_at DESC`,
+      [exact, lowered]
+    );
+    return res.rows.map((row) => this.mapRow(row));
+  }
+
   async upsert(input: ClientUpsertInput): Promise<ClientRow> {
     const res = await this.pool.query(
       `INSERT INTO clients (id, name, owner, plan, status, contact_info, limits_json, billing_status, trial_ends_at, stripe_customer_id, stripe_subscription_id, billing_auto_paused)
