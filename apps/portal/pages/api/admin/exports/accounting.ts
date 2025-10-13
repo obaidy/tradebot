@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const response = await adminRequestRaw(`/exports/accounting${params.toString() ? `?${params.toString()}` : ''}`);
     res.status(response.status);
-    response.headers.forEach((value, key) => {
+    response.headers.forEach((value: string, key: string) => {
       if (key.toLowerCase() === 'transfer-encoding') return;
       res.setHeader(key, value);
     });

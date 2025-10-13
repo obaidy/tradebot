@@ -12,6 +12,7 @@ import { MobileAuthRepository } from '../db/mobileAuthRepo';
 import { MobileControlNotificationsRepository } from '../db/mobileNotificationsRepo';
 import { MobileAuthService } from './auth';
 import { dispatchControlNotification } from './notifications';
+import type { StrategyId } from '../strategies/types';
 import type { MobileUserProfile } from './types';
 import {
   fetchActivityFeed,
@@ -202,8 +203,8 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
 
     try {
       if (method === 'POST' && resourcePath === '/v1/auth/pkce/start') {
-        const body = await readJsonBody(req);
-        const input = body?.parsed ?? {};
+        const bodyResult = await readJsonBody(req);
+        const input = bodyResult?.parsed ?? {};
         const result = await authService.startPkce({
           codeChallenge: String(input.codeChallenge ?? input.code_challenge ?? ''),
           redirectUri: String(input.redirectUri ?? input.redirect_uri ?? ''),
@@ -215,8 +216,8 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
       }
 
       if (method === 'POST' && resourcePath === '/v1/auth/exchange') {
-        const body = await readJsonBody(req);
-        const input = body?.parsed ?? {};
+        const bodyResult = await readJsonBody(req);
+        const input = bodyResult?.parsed ?? {};
         const result = await authService.exchangeCode({
           state: String(input.state ?? ''),
           code: String(input.code ?? ''),
@@ -311,13 +312,15 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
       }
 
       if (method === 'POST' && resourcePath === '/v1/controls/pause-all') {
+        const body = await readJsonBody(req);
+        const input = body?.parsed ?? {};
         const clientId = resolveClientId(null, authResult.auth.clientIds);
         if (!clientId) {
           sendError(res, 400, 'client_scope_missing');
           return;
         }
         try {
-          requireConfirmation(body?.parsed ?? {}, {
+          requireConfirmation(input, {
             confirm: false,
             mfa: CONFIG.MOBILE.FORCE_MFA,
             biometric: false,
@@ -338,7 +341,7 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
             source: 'mobile',
             deviceId: authResult.auth.deviceId,
             email: authResult.auth.email ?? null,
-            confirmation: confirmMetadata(body?.parsed ?? {}),
+            confirmation: confirmMetadata(input),
           },
         });
         await dispatchControlNotification(controlNotificationsRepo, {
@@ -355,13 +358,15 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
       }
 
       if (method === 'POST' && resourcePath === '/v1/controls/resume-all') {
+        const bodyResult = await readJsonBody(req);
+        const input = bodyResult?.parsed ?? {};
         const clientId = resolveClientId(null, authResult.auth.clientIds);
         if (!clientId) {
           sendError(res, 400, 'client_scope_missing');
           return;
         }
         try {
-          requireConfirmation(body?.parsed ?? {}, {
+          requireConfirmation(input, {
             confirm: false,
             mfa: CONFIG.MOBILE.FORCE_MFA,
             biometric: false,
@@ -382,7 +387,7 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
             source: 'mobile',
             deviceId: authResult.auth.deviceId,
             email: authResult.auth.email ?? null,
-            confirmation: confirmMetadata(body?.parsed ?? {}),
+            confirmation: confirmMetadata(input),
           },
         });
         await dispatchControlNotification(controlNotificationsRepo, {
@@ -400,7 +405,8 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
 
       const strategyControlMatch = resourcePath.match(/^\/v1\/controls\/strategies\/([^/]+)\/(pause|resume)$/);
       if (method === 'POST' && strategyControlMatch) {
-        const [, strategyId, action] = strategyControlMatch;
+        const [, rawStrategyId, action] = strategyControlMatch;
+        const strategyId = rawStrategyId as StrategyId;
         if (!strategyId) {
           sendError(res, 400, 'strategy_required');
           return;
@@ -410,8 +416,10 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
           sendError(res, 400, 'client_scope_missing');
           return;
         }
+        const bodyResult = await readJsonBody(req);
+        const input = bodyResult?.parsed ?? {};
         try {
-          requireConfirmation(body?.parsed ?? {}, {
+          requireConfirmation(input, {
             confirm: false,
             mfa: CONFIG.MOBILE.FORCE_MFA,
             biometric: false,
@@ -444,7 +452,7 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
             deviceId: authResult.auth.deviceId,
             strategyId,
             email: authResult.auth.email ?? null,
-            confirmation: confirmMetadata(body?.parsed ?? {}),
+            confirmation: confirmMetadata(input),
           },
         });
         await dispatchControlNotification(controlNotificationsRepo, {
@@ -563,7 +571,6 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
         return;
       }
       let authContext: AuthenticatedRequest;
-      let session: any;
       try {
         const verified = authService.verifyAccessToken(token);
         const sessionRow = await mobileRepo.getSession(verified.sessionId);
@@ -571,16 +578,24 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
           socket.close(1008, 'session_revoked');
           return;
         }
+        const profile: MobileUserProfile = {
+          id: verified.user.id,
+          email: verified.user.email ?? sessionRow.userEmail ?? undefined,
+          name: verified.user.name ?? sessionRow.userName ?? undefined,
+          roles: sessionRow.roles,
+          clientIds: sessionRow.clientIds,
+          plan: verified.user.plan ?? sessionRow.plan ?? undefined,
+        };
         authContext = {
           sessionId: verified.sessionId,
           deviceId: verified.deviceId,
-          clientIds: verified.clientIds,
-          roles: verified.roles,
-          email: verified.email,
-          name: verified.name,
+          clientIds: sessionRow.clientIds,
+          roles: sessionRow.roles,
+          user: profile,
+          email: sessionRow.userEmail,
+          name: sessionRow.userName,
         };
-        session = sessionRow;
-        await mobileRepo.updateSession({ sessionId: session.sessionId, lastSeenAt: new Date() });
+        await mobileRepo.updateSession({ sessionId: sessionRow.sessionId, lastSeenAt: new Date() });
       } catch (err) {
         socket.close(1008, 'invalid_token');
         return;

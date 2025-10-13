@@ -20,7 +20,7 @@ export async function runMevBot(ctx: StrategyRunContext) {
     }
   };
 
-  let envConfig;
+  let envConfig: ReturnType<typeof buildMevEnvironment>;
   try {
     envConfig = buildMevEnvironment(ctx);
   } catch (error) {
@@ -36,7 +36,7 @@ export async function runMevBot(ctx: StrategyRunContext) {
     throw error;
   }
 
-  let preflight;
+  let preflight: Awaited<ReturnType<typeof probeMevRuntime>>;
   try {
     preflight = await probeMevRuntime(envConfig.env);
   } catch (error) {
@@ -139,7 +139,7 @@ export async function runMevBot(ctx: StrategyRunContext) {
   await new Promise<void>((resolve, reject) => {
     // 🔧 FIX: use the actual Node binary and preserve PATH + the rest of the env
     const child = spawn(process.execPath, [scriptPath], {
-        env: { ...process.env, ...envConfig.env, MEV_RUN_MODE: ctx.runMode },
+      env: { ...process.env, ...envConfig.env, MEV_RUN_MODE: ctx.runMode },
       cwd: scriptDir,
       stdio: 'inherit',
     });

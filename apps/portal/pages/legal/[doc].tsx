@@ -29,7 +29,9 @@ interface Props {
 }
 
 export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
-  const doc = Array.isArray(ctx.params?.doc) ? ctx.params?.doc[0] : ctx.params?.doc ?? 'terms';
+  const rawDoc = ctx.params?.doc;
+  const docCandidate = typeof rawDoc === 'string' ? rawDoc : Array.isArray(rawDoc) ? rawDoc[0] : undefined;
+  const doc = (docCandidate ?? 'terms').trim() || 'terms';
   try {
     const content = await readLegalDocument(doc);
     return {
