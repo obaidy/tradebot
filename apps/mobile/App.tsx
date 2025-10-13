@@ -9,6 +9,8 @@ import { AppNavigator } from './src/navigation/AppNavigator';
 
 WebBrowser.maybeCompleteAuthSession();
 
+console.log('React Native JS version', require('react-native/package.json').version);
+
 export default function App() {
   return (
     <Provider store={store}>
