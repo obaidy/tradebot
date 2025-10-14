@@ -77,6 +77,44 @@ export const PLAN_DEFINITIONS: PlanDefinition[] = [
       },
     },
   },
+  {
+    id: 'override',
+    name: 'Internal Override',
+    priceUsd: 0,
+    description: 'Full feature access for internal demos and override users.',
+    features: [
+      'Live trading enabled',
+      'All exchanges unlocked',
+      'All strategies enabled',
+      'Priority support',
+    ],
+    strategies: [
+      'grid',
+      'mev',
+      'dex-swap',
+      'perp-grid',
+      'dex-aggregation',
+      'yield-farming',
+      'flash-loan-arb',
+      'cross-chain-arb',
+      'nft-market-maker',
+    ],
+    limits: {
+      maxSymbols: 50,
+      allowLiveTrading: true,
+      paperOnly: false,
+      allowedExchanges: ['binance', 'kraken', 'coinbasepro', 'bybit', 'okx'],
+      maxPerTradeUsd: 10000,
+      maxExposureUsd: 100000,
+      maxDailyVolumeUsd: 500000,
+      guard: {
+        maxGlobalDrawdownUsd: 5000,
+        maxRunLossUsd: 2000,
+        maxApiErrorsPerMin: 20,
+        staleTickerMs: 60_000,
+      },
+    },
+  },
 ];
 
 export function getPlanById(planId: string) {

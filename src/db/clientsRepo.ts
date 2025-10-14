@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { CONFIG } from '../config';
 
 function parseJsonValue<T = any>(value: any): T | null {
   if (value === null || value === undefined) return null;
@@ -49,6 +50,10 @@ export class ClientsRepository {
   async findById(clientId: string): Promise<ClientRow | null> {
     const res = await this.pool.query('SELECT * FROM clients WHERE id = $1', [clientId]);
     if (!res.rows.length) {
+      const sampleId = CONFIG.MOBILE.SAMPLE_CLIENT_ID || CONFIG.RUN.CLIENT_ID || 'default';
+      if (clientId === sampleId) {
+        return this.buildSampleClientRow();
+      }
       return null;
     }
     return this.mapRow(res.rows[0]);
@@ -73,7 +78,17 @@ export class ClientsRepository {
        ORDER BY created_at DESC`,
       [exact, lowered]
     );
-    return res.rows.map((row) => this.mapRow(row));
+    if (res.rows.length) {
+      return res.rows.map((row) => this.mapRow(row));
+    }
+
+    const overrideUsers = new Set((CONFIG.MOBILE.OVERRIDE_USERS || []).map((value) => value.toLowerCase()));
+    const hasOverride = lowered.some((value) => overrideUsers.has(value));
+    if (hasOverride) {
+      return [this.buildSampleClientRow(lowered.find((value) => overrideUsers.has(value)) ?? undefined)];
+    }
+
+    return [];
   }
 
   async upsert(input: ClientUpsertInput): Promise<ClientRow> {
@@ -218,6 +233,34 @@ export class ClientsRepository {
       stripeSubscriptionId: row.stripe_subscription_id ?? null,
       billingAutoPaused: Boolean(row.billing_auto_paused),
       createdAt: row.created_at,
+    };
+  }
+
+  private buildSampleClientRow(owner?: string): ClientRow {
+    const sampleId = CONFIG.MOBILE.SAMPLE_CLIENT_ID || CONFIG.RUN.CLIENT_ID || 'default';
+    const ownerValue = owner ?? sampleId;
+    const contactInfo = ownerValue.includes('@')
+      ? { email: ownerValue }
+      : ownerValue !== sampleId
+      ? { email: `${ownerValue}@example.com` }
+      : null;
+
+    return {
+      id: sampleId,
+      name: 'Demo Account',
+      owner: ownerValue,
+      plan: 'override',
+      status: 'active',
+      contactInfo,
+      limits: null,
+      isPaused: false,
+      killRequested: false,
+      billingStatus: 'trialing',
+      trialEndsAt: null,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      billingAutoPaused: false,
+      createdAt: new Date(),
     };
   }
 }
