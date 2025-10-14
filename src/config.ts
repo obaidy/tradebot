@@ -3,9 +3,15 @@ dotenv.config();
 
 export const CONFIG = {
   ENV: process.env.NODE_ENV || 'development',
-  REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
-  ENABLE_REDIS_CACHE: process.env.ENABLE_REDIS_CACHE === 'true',
-  PG_URL: process.env.PG_URL || 'postgresql://postgres:password@localhost:5432/tradebot',
+  REDIS_URL:
+    process.env.REDIS_URL ||
+    (process.env.NODE_ENV === 'production' ? '' : 'redis://localhost:6379'),
+  ENABLE_REDIS_CACHE: (process.env.ENABLE_REDIS_CACHE ?? 'false').toLowerCase() === 'true',
+  PG_URL:
+    process.env.PG_URL ||
+    (process.env.NODE_ENV === 'production'
+      ? 'postgresql://postgres:password@localhost:5432/tradebot'
+      : 'postgresql://postgres:password@localhost:5432/tradebot'),
   TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '',
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || '',
   SENDGRID_API_KEY: process.env.SENDGRID_API_KEY || '',
