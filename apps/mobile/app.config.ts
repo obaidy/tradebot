@@ -1,6 +1,6 @@
 import { ConfigContext, ExpoConfig } from '@expo/config';
 
-const REMOTE_BASE_URL = (process.env.MOBILE_REMOTE_BASE_URL || 'https://tradebot-api.onrender.com').trim();
+const REMOTE_BASE_URL = (process.env.MOBILE_REMOTE_BASE_URL || 'https://tradebot-api-q9m0.onrender.com').trim();
 const LOCAL_DEFAULTS = {
   api: 'http://localhost:9400/mobile',
   ws: 'ws://localhost:9400/mobile/ws',
