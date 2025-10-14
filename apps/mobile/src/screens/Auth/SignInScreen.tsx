@@ -59,6 +59,9 @@ export const SignInScreen: React.FC = () => {
       );
       const codeChallenge = digest.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
       const redirectUri = makeRedirectUri({ path: 'auth/callback' });
+      if (__DEV__) {
+        console.log('[auth] redirectUri', redirectUri);
+      }
       const deviceId = Crypto.randomUUID();
       const start = await beginPkceSignIn({
         codeChallenge,

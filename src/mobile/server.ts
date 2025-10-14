@@ -248,6 +248,10 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
     if (method === 'POST' && resourcePath === '/v1/auth/pkce/start') {
       const bodyResult = await readJsonBody(req);
       const input = bodyResult?.parsed ?? {};
+      console.log('[mobile] pkce/start request', {
+        codeChallengeLength: typeof input.codeChallenge === 'string' ? input.codeChallenge.length : null,
+        redirectUri: input.redirectUri ?? input.redirect_uri ?? null,
+      });
       const result = await authService.startPkce({
         codeChallenge: String(input.codeChallenge ?? input.code_challenge ?? ''),
         redirectUri: String(input.redirectUri ?? input.redirect_uri ?? ''),
@@ -255,6 +259,7 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
         scope: typeof input.scope === 'string' ? input.scope : undefined,
       });
       sendJson(res, 200, result);
+      console.log('[mobile] pkce/start success', { state: result.state });
       return true;
     }
 
