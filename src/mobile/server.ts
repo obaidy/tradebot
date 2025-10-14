@@ -760,8 +760,8 @@ export function startMobileServer(pool: Pool, portOverride?: number) {
       .handleRequest(req, res)
       .then((handled) => {
         if (!handled && !res.writableEnded) {
-          console.log('[mobile] passthrough request', req.method, req.url);
-          // leave response untouched so upstream server can handle it
+          console.log('[mobile] passthrough request (standalone)', req.method, req.url);
+          notFound(res);
         }
       })
       .catch((err) => {

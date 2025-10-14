@@ -8,6 +8,7 @@ import { circuitBreaker } from './guard/circuitBreaker';
 import { setLogIngestionWebhook } from './utils/logger';
 import { startDashboardServer } from './dashboard/server';
 import { startMobileServer } from './mobile/server';
+import { startAdminServer } from './admin/server';
 import { getPool } from './db/pool';
 import { runMigrations } from './db/migrations';
 
@@ -25,7 +26,25 @@ async function main() {
   startMetricsServer();
   startKillSwitchServer();
   startDashboardServer(pool);
-  startMobileServer(pool);
+
+  const shouldStartAdmin =
+    Boolean(process.env.PORT && process.env.PORT.length) ||
+    (process.env.START_ADMIN_SERVER || '').toLowerCase() === 'true';
+
+  if (shouldStartAdmin) {
+    const adminPort = Number(process.env.PORT || process.env.ADMIN_PORT || '9300');
+    startAdminServer({ port: adminPort })
+      .then(() => {
+        console.log(`[index] admin server started on :${adminPort}`);
+      })
+      .catch((err) => {
+        console.error('[index] admin server failed to start', err);
+        console.error('Falling back to standalone mobile server...');
+        startMobileServer(pool);
+      });
+  } else {
+    startMobileServer(pool);
+  }
   if (process.env.LOG_INGEST_WEBHOOK) {
     setLogIngestionWebhook(process.env.LOG_INGEST_WEBHOOK);
   }
