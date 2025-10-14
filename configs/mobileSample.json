@@ -1,0 +1,75 @@
+{
+  "dashboard": {
+    "portfolio": {
+      "clientId": "demo",
+      "totalPnlUsd": 12450,
+      "dayChangePct": 2.6,
+      "bankRollUsd": 25000,
+      "activeStrategies": 3,
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    },
+    "strategies": [
+      {
+        "strategyId": "grid-btc-usdt",
+        "name": "Grid BTC/USDT",
+        "runMode": "live",
+        "status": "running",
+        "pnlPct": 18.4,
+        "lastRunAt": "2025-01-01T00:00:00.000Z"
+      },
+      {
+        "strategyId": "momentum-eth",
+        "name": "Momentum ETH",
+        "runMode": "paper",
+        "status": "paused",
+        "pnlPct": 6.2,
+        "lastRunAt": "2025-01-01T00:00:00.000Z"
+      },
+      {
+        "strategyId": "arbitrage-avalanche",
+        "name": "Arbitrage Avalanche",
+        "runMode": "live",
+        "status": "error",
+        "pnlPct": -2.5,
+        "lastRunAt": "2025-01-01T00:00:00.000Z"
+      }
+    ],
+    "risk": {
+      "globalDrawdownUsd": 2200,
+      "exposurePct": 42.5,
+      "guardState": "warning"
+    },
+    "quickActions": {
+      "killSwitchAvailable": true,
+      "pauseAllAvailable": true
+    }
+  },
+  "activity": [
+    {
+      "id": "sample-1",
+      "type": "trade",
+      "severity": "info",
+      "title": "BTC/USDT grid order filled",
+      "description": "Filled 0.05 BTC @ 64,250 USDT",
+      "asset": "BTC/USDT",
+      "pnlUsd": 215,
+      "createdAt": "2025-01-01T08:30:00.000Z"
+    },
+    {
+      "id": "sample-2",
+      "type": "alert",
+      "severity": "warn",
+      "title": "Momentum ETH paused",
+      "description": "Paused automatically due to volatility guard threshold.",
+      "createdAt": "2025-01-01T08:15:00.000Z"
+    },
+    {
+      "id": "sample-3",
+      "type": "system",
+      "severity": "info",
+      "title": "Kill switch test",
+      "description": "Manual kill switch dry-run completed successfully.",
+      "createdAt": "2025-01-01T07:58:00.000Z"
+    }
+  ]
+}

@@ -64,5 +64,11 @@ export const CONFIG = {
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean),
+    OVERRIDE_USERS: (process.env.MOBILE_OVERRIDE_USERS || '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+    SAMPLE_CLIENT_ID: process.env.MOBILE_SAMPLE_CLIENT_ID || (process.env.CLIENT_ID || 'default'),
+    SAMPLE_DATA_PATH: process.env.MOBILE_SAMPLE_DATA_PATH || 'configs/mobileSample.json',
   }
 };

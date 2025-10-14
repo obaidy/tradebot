@@ -1,4 +1,6 @@
 import { Pool } from 'pg';
+import { promises as fs } from 'fs';
+import path from 'path';
 import { CONFIG } from '../config';
 
 export type StrategyState = 'running' | 'paused' | 'error';
@@ -51,6 +53,32 @@ export interface ActivityFeed {
   nextCursor?: string;
 }
 
+interface SampleDataShape {
+  dashboard: DashboardSummary;
+  activity: ActivityEntry[];
+}
+
+let cachedSampleData: SampleDataShape | null = null;
+
+async function loadSampleData(): Promise<SampleDataShape | null> {
+  if (cachedSampleData) return cachedSampleData;
+  const samplePath = CONFIG.MOBILE.SAMPLE_DATA_PATH;
+  if (!samplePath) return null;
+  try {
+    const resolved = path.isAbsolute(samplePath)
+      ? samplePath
+      : path.resolve(process.cwd(), samplePath);
+    const raw = await fs.readFile(resolved, 'utf8');
+    cachedSampleData = JSON.parse(raw) as SampleDataShape;
+    return cachedSampleData;
+  } catch (err) {
+    if (CONFIG.ENV !== 'production') {
+      console.warn('[mobile] sample data unavailable', err);
+    }
+    return null;
+  }
+}
+
 interface OrderRow {
   id: number;
   created_at: Date;
@@ -89,6 +117,7 @@ interface StrategyRunRow {
 }
 
 export async function fetchDashboardSummary(pool: Pool, clientId: string): Promise<DashboardSummary> {
+  const sampleDataPromise = loadSampleData();
   const clientPromise = pool.query(
     `SELECT id, plan, is_paused, kill_requested FROM clients WHERE id = $1`,
     [clientId]
@@ -123,6 +152,23 @@ export async function fetchDashboardSummary(pool: Pool, clientId: string): Promi
   const guardState = drawdown > bankRollUsd * 0.1 ? 'critical'
     : drawdown > bankRollUsd * 0.05 ? 'warning'
     : 'nominal';
+
+  const sampleData = await sampleDataPromise;
+  if (!clientRow && sampleData) {
+    const dashboard = {
+      ...sampleData.dashboard,
+      portfolio: {
+        ...sampleData.dashboard.portfolio,
+        clientId,
+        updatedAt: new Date().toISOString(),
+      },
+      strategies: sampleData.dashboard.strategies.map((strategy) => ({
+        ...strategy,
+        lastRunAt: strategy.lastRunAt ?? new Date().toISOString(),
+      })),
+    };
+    return dashboard;
+  }
 
   return {
     portfolio: {
@@ -200,6 +246,7 @@ export async function fetchActivityFeed(
   clientId: string,
   options: { limit?: number; cursor?: string }
 ): Promise<ActivityFeed> {
+  const sampleDataPromise = loadSampleData();
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
   const cursorDate = options.cursor ? new Date(options.cursor) : null;
   if (cursorDate && Number.isNaN(cursorDate.getTime())) {
@@ -238,6 +285,19 @@ export async function fetchActivityFeed(
     .slice(0, limit);
 
   const nextCursor = combined.length ? combined[combined.length - 1].createdAt : undefined;
+
+  if (!combined.length) {
+    const sampleData = await sampleDataPromise;
+    if (sampleData) {
+      return {
+        entries: sampleData.activity.map((entry) => ({
+          ...entry,
+          createdAt: entry.createdAt ?? new Date().toISOString(),
+        })),
+        nextCursor: undefined,
+      };
+    }
+  }
 
   return {
     entries: combined,

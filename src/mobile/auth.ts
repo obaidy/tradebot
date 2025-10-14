@@ -496,12 +496,21 @@ export class MobileAuthService {
       identifiers.push(email.toLowerCase());
     }
     const clientRows = await this.clientsRepo.listByOwners(identifiers);
+    const overrideAllowlist = CONFIG.MOBILE.OVERRIDE_USERS || [];
+    const shouldOverride =
+      overrideAllowlist.includes(userId.toLowerCase()) ||
+      (email ? overrideAllowlist.includes(email.toLowerCase()) : false);
+
     if (!clientRows.length) {
+      if (shouldOverride) {
+        const fallback = CONFIG.MOBILE.SAMPLE_CLIENT_ID || CONFIG.RUN.CLIENT_ID || 'default';
+        return { clientIds: [fallback], plan: 'override' as string | null };
+      }
       const fallback = CONFIG.RUN.CLIENT_ID || 'default';
       return { clientIds: [fallback], plan: null as string | null };
     }
     const clientIds = Array.from(new Set(clientRows.map((row) => row.id)));
-    const plan = clientRows[0]?.plan ?? null;
+    const plan = clientRows[0]?.plan ?? (shouldOverride ? 'override' : null);
     return { clientIds, plan };
   }
 
