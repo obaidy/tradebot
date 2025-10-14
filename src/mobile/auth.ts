@@ -374,18 +374,20 @@ export class MobileAuthService {
     codeVerifier: string;
     redirectUri: string;
   }): Promise<Auth0TokenSuccess> {
-    const payload = {
-      grant_type: 'authorization_code',
-      client_id: this.clientId,
-      code: params.code,
-      code_verifier: params.codeVerifier,
-      redirect_uri: params.redirectUri,
-    };
+    const form = new URLSearchParams();
+    form.set('grant_type', 'authorization_code');
+    form.set('client_id', this.clientId);
+    if (process.env.AUTH0_CLIENT_SECRET) {
+      form.set('client_secret', process.env.AUTH0_CLIENT_SECRET);
+    }
+    form.set('code', params.code);
+    form.set('code_verifier', params.codeVerifier);
+    form.set('redirect_uri', params.redirectUri);
     try {
       const response = await axios.post<Auth0TokenSuccess>(
         `${this.issuer}/oauth/token`,
-        payload,
-        { headers: { 'Content-Type': 'application/json' } }
+        form.toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
       );
       return response.data;
     } catch (err) {
