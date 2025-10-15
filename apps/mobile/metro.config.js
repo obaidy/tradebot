@@ -26,6 +26,7 @@ config.resolver.extraNodeModules = {
 config.resolver.alias = {
   ...(config.resolver.alias || {}),
   '@': path.resolve(projectRoot, 'src'),
+  'expo-network': path.resolve(projectRoot, 'src/stubs/expoNetwork.ts'),
 };
 config.resolver.disableHierarchicalLookup = true;
 config.resolver.nodeModulesPaths = [

@@ -38,7 +38,7 @@ export interface AuthenticatedContext {
 
 export interface ControlNotificationPayload {
   clientId: string;
-  action: 'kill-switch' | 'pause-all' | 'resume-all' | 'strategy-pause' | 'strategy-resume';
+  action: 'kill-switch' | 'pause-all' | 'resume-all' | 'strategy-pause' | 'strategy-resume' | 'account-delete';
   actor: string;
   deviceId: string;
   strategyId?: string;

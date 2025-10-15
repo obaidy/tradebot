@@ -252,6 +252,7 @@ export async function fetchStrategies(pool: Pool, clientId: string): Promise<Str
   );
 
   const [allocationsRes, runsRes] = await Promise.all([allocationsPromise, runsPromise]);
+  const sampleDataPromise = loadSampleData();
 
   const latestRunByStrategy = new Map<string, StrategyRunRow>();
   for (const row of runsRes.rows) {
@@ -260,6 +261,21 @@ export async function fetchStrategies(pool: Pool, clientId: string): Promise<Str
     if (!latestRunByStrategy.has(strategyId)) {
       latestRunByStrategy.set(strategyId, row);
     }
+  }
+
+  if (!allocationsRes.rows.length) {
+    const sampleData = await sampleDataPromise;
+    if (sampleData?.dashboard?.strategies?.length) {
+      return sampleData.dashboard.strategies.map((strategy) => ({
+        strategyId: strategy.strategyId,
+        name: strategy.name,
+        runMode: strategy.runMode,
+        status: strategy.status,
+        pnlPct: Number(strategy.pnlPct ?? 0),
+        lastRunAt: strategy.lastRunAt ?? new Date().toISOString(),
+      }));
+    }
+    return [];
   }
 
   return allocationsRes.rows.map((row) => {

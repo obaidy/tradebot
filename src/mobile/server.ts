@@ -445,6 +445,37 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
       }
     }
 
+    if (method === 'DELETE' && resourcePath === '/v1/account') {
+      const userId = authResult.auth.user.id;
+      await mobileRepo.deleteSessionsForUser(userId);
+      await mobileRepo.deleteSession(authResult.session.sessionId);
+
+      const metadata = {
+        userId,
+        email: authResult.auth.email ?? null,
+        deviceId: authResult.auth.deviceId,
+      };
+
+      for (const clientId of authResult.auth.clientIds) {
+        await auditRepo.addEntry({
+          clientId,
+          actor: mobileActor(authResult.auth),
+          action: 'mobile_account_deleted',
+          metadata,
+        });
+        await dispatchControlNotification(controlNotificationsRepo, {
+          clientId,
+          action: 'account-delete',
+          actor: mobileActor(authResult.auth),
+          deviceId: authResult.auth.deviceId,
+          metadata,
+        });
+      }
+
+      res.writeHead(204).end();
+      return true;
+    }
+
     if (method === 'POST' && resourcePath === '/v1/controls/kill-switch') {
       const body = await readJsonBody(req);
       const input = body?.parsed ?? {};

@@ -299,4 +299,13 @@ export class MobileAuthRepository {
     );
     return res.rows.length ? this.mapSession(res.rows[0]) : null;
   }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.pool.query(`DELETE FROM mobile_device_sessions WHERE session_id = $1`, [sessionId]);
+  }
+
+  async deleteSessionsForUser(userId: string): Promise<number> {
+    const res = await this.pool.query(`DELETE FROM mobile_device_sessions WHERE user_id = $1`, [userId]);
+    return res.rowCount ?? 0;
+  }
 }

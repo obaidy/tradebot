@@ -155,6 +155,12 @@ export const tradebotApi = createApi({
         'Watchlists',
       ],
     }),
+    deleteAccount: builder.mutation<void, void>({
+      query: () => ({
+        url: 'v1/account',
+        method: 'DELETE',
+      }),
+    }),
   }),
 });
 
@@ -175,4 +181,5 @@ export const {
   useCreateMarketWatchlistMutation,
   useUpdateMarketWatchlistMutation,
   useDeleteMarketWatchlistMutation,
+  useDeleteAccountMutation,
 } = tradebotApi;
