@@ -2,6 +2,8 @@ import { Pool } from 'pg';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { CONFIG } from '../config';
+import { listStrategies } from '../strategies';
+import type { StrategyRunMode } from '../strategies/types';
 
 export type StrategyState = 'running' | 'paused' | 'error';
 export type ActivityType = 'trade' | 'alert' | 'system';
@@ -87,6 +89,20 @@ export interface MarketWatchlist {
   name: string;
   symbols: string[];
   updatedAt: string;
+}
+
+export interface ClientMetrics {
+  clientId: string;
+  pnl: {
+    global: number;
+    run: number;
+    history: number[];
+  };
+  inventory: {
+    base: number;
+    cost: number;
+  };
+  lastTickerTs: number | null;
 }
 
 interface SampleDataShape {
@@ -250,9 +266,13 @@ export async function fetchStrategies(pool: Pool, clientId: string): Promise<Str
      LIMIT 100`,
     [clientId]
   );
+  const clientPromise = pool.query(`SELECT plan FROM clients WHERE id = $1`, [clientId]);
 
-  const [allocationsRes, runsRes] = await Promise.all([allocationsPromise, runsPromise]);
+  const [allocationsRes, runsRes, clientRes] = await Promise.all([allocationsPromise, runsPromise, clientPromise]);
   const sampleDataPromise = loadSampleData();
+
+  const plan = (clientRes.rows[0]?.plan ?? CONFIG.MOBILE.DEFAULT_PLAN ?? 'starter') as string;
+  const allowedPlan = (value: string) => value.toLowerCase() === plan.toLowerCase();
 
   const latestRunByStrategy = new Map<string, StrategyRunRow>();
   for (const row of runsRes.rows) {
@@ -263,7 +283,60 @@ export async function fetchStrategies(pool: Pool, clientId: string): Promise<Str
     }
   }
 
-  if (!allocationsRes.rows.length) {
+  const allocationsMap = new Map<string, StrategyAllocationRow>();
+  allocationsRes.rows.forEach((row) => allocationsMap.set(row.strategy_id, row));
+
+  const definitions = listStrategies();
+  const allowedStrategies = definitions.filter((definition) =>
+    definition.allowedPlans.some((planId) => allowedPlan(String(planId)))
+  );
+
+  const results: StrategyStatus[] = [];
+
+  allowedStrategies.forEach((definition) => {
+    const row = allocationsMap.get(definition.id);
+    const strategyId = row.strategy_id;
+    const latestRun = latestRunByStrategy.get(strategyId) ?? null;
+    const status = mapStrategyStatus(latestRun?.status ?? null, row.enabled);
+    const pnlPct = latestRun?.rate_limit_meta && typeof latestRun.rate_limit_meta === 'object'
+      ? Number((latestRun.rate_limit_meta as any).pnlPct ?? 0)
+      : 0;
+    const name = formatStrategyName(strategyId);
+    const lastRunAt = latestRun?.ended_at ?? latestRun?.started_at ?? row.updated_at;
+    results.push({
+      strategyId,
+      name,
+      runMode: normalizeRunMode(row.run_mode),
+      status,
+      pnlPct: Number(pnlPct.toFixed(2)),
+      lastRunAt: lastRunAt ? new Date(lastRunAt).toISOString() : new Date(0).toISOString(),
+      hasAllocation: true,
+    });
+  });
+
+  const existingIds = new Set(results.map((item) => item.strategyId));
+
+  allowedStrategies
+    .filter((definition) => !existingIds.has(definition.id))
+    .forEach((definition) => {
+      const latestRun = latestRunByStrategy.get(definition.id) ?? null;
+      const pnlPct = latestRun?.rate_limit_meta && typeof latestRun.rate_limit_meta === 'object'
+        ? Number((latestRun.rate_limit_meta as any).pnlPct ?? 0)
+        : 0;
+      const lastRunAt = latestRun?.ended_at ?? latestRun?.started_at ?? null;
+      const defaultRunMode: StrategyRunMode = definition.supportsLive ? 'live' : 'paper';
+      results.push({
+        strategyId: definition.id,
+        name: definition.name,
+        runMode: defaultRunMode,
+        status: 'paused',
+        pnlPct: Number(pnlPct.toFixed(2)),
+        lastRunAt: lastRunAt ? new Date(lastRunAt).toISOString() : new Date(0).toISOString(),
+        hasAllocation: false,
+      });
+    });
+
+  if (!results.length) {
     const sampleData = await sampleDataPromise;
     if (sampleData?.dashboard?.strategies?.length) {
       return sampleData.dashboard.strategies.map((strategy) => ({
@@ -275,27 +348,9 @@ export async function fetchStrategies(pool: Pool, clientId: string): Promise<Str
         lastRunAt: strategy.lastRunAt ?? new Date().toISOString(),
       }));
     }
-    return [];
   }
 
-  return allocationsRes.rows.map((row) => {
-    const strategyId = row.strategy_id;
-    const latestRun = latestRunByStrategy.get(strategyId) ?? null;
-    const status = mapStrategyStatus(latestRun?.status ?? null, row.enabled);
-    const pnlPct = latestRun?.rate_limit_meta && typeof latestRun.rate_limit_meta === 'object'
-      ? Number((latestRun.rate_limit_meta as any).pnlPct ?? 0)
-      : 0;
-    const name = formatStrategyName(strategyId);
-    const lastRunAt = latestRun?.ended_at ?? latestRun?.started_at ?? row.updated_at;
-    return {
-      strategyId,
-      name,
-      runMode: normalizeRunMode(row.run_mode),
-      status,
-      pnlPct: Number(pnlPct.toFixed(2)),
-      lastRunAt: lastRunAt ? new Date(lastRunAt).toISOString() : new Date(0).toISOString(),
-    };
-  });
+  return results.sort((a, b) => a.strategyId.localeCompare(b.strategyId));
 }
 
 export async function fetchActivityFeed(
@@ -460,6 +515,52 @@ export async function fetchStrategyDetail(pool: Pool, clientId: string, strategy
 export async function fetchRealtimeActivitySnapshot(pool: Pool, clientId: string): Promise<ActivityEntry[]> {
   const result = await fetchActivityFeed(pool, clientId, { limit: 20 });
   return result.entries;
+}
+
+export async function fetchClientMetricsSnapshot(pool: Pool, clientId: string): Promise<ClientMetrics | null> {
+  const guardRes = await pool.query(
+    'SELECT global_pnl, run_pnl, inventory_base, inventory_cost, last_ticker_ts FROM bot_guard_state WHERE client_id = $1',
+    [clientId]
+  );
+  if (!guardRes.rows.length) {
+    return null;
+  }
+  const row = guardRes.rows[0];
+  const runRows = await pool.query(
+    `SELECT params_json
+     FROM bot_runs
+     WHERE client_id = $1
+     ORDER BY started_at DESC
+     LIMIT 40`,
+    [clientId]
+  );
+  const pnlHistory = runRows.rows
+    .map((runRow) => {
+      const params = (runRow.params_json ?? {}) as Record<string, any>;
+      const summary = params.summary ?? params.plan?.summary ?? params.metadata?.summary ?? null;
+      const candidate =
+        summary?.estNetProfit ??
+        summary?.raw?.estNetProfit ??
+        params.summary?.raw?.estNetProfit ??
+        params?.metrics?.estNetProfit ??
+        null;
+      return candidate !== null && candidate !== undefined ? Number(candidate) : null;
+    })
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+  return {
+    clientId,
+    pnl: {
+      global: Number(row.global_pnl || 0),
+      run: Number(row.run_pnl || 0),
+      history: pnlHistory,
+    },
+    inventory: {
+      base: Number(row.inventory_base || 0),
+      cost: Number(row.inventory_cost || 0),
+    },
+    lastTickerTs: row.last_ticker_ts ? Number(row.last_ticker_ts) : null,
+  };
 }
 
 function mapOrderToActivity(row: OrderRow): ActivityEntry {

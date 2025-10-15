@@ -16,6 +16,7 @@ import type {
   MarketWatchlist,
   MarketWatchlistInput,
   StrategyDetail,
+  ClientMetrics,
 } from './types';
 
 export const tradebotApi = createApi({
@@ -31,7 +32,7 @@ export const tradebotApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ['Dashboard', 'Activity', 'Strategies', 'Notifications', 'Markets', 'Watchlists'],
+  tagTypes: ['Dashboard', 'Activity', 'Strategies', 'Notifications', 'Markets', 'Watchlists', 'Metrics'],
   endpoints: (builder) => ({
     getDashboardSummary: builder.query<DashboardSummaryResponse, void>({
       query: () => 'v1/dashboard/summary',
@@ -123,6 +124,10 @@ export const tradebotApi = createApi({
           ? [...result.map((item) => ({ type: 'Watchlists' as const, id: item.id })), 'Watchlists']
           : ['Watchlists'],
     }),
+    getClientMetrics: builder.query<ClientMetrics, void>({
+      query: () => 'v1/metrics',
+      providesTags: ['Metrics'],
+    }),
     createMarketWatchlist: builder.mutation<MarketWatchlist, MarketWatchlistInput>({
       query: (body) => ({
         url: 'v1/markets/watchlists',
@@ -178,6 +183,7 @@ export const {
   useRegisterDeviceMutation,
   useGetMarketSnapshotsQuery,
   useGetMarketWatchlistsQuery,
+  useGetClientMetricsQuery,
   useCreateMarketWatchlistMutation,
   useUpdateMarketWatchlistMutation,
   useDeleteMarketWatchlistMutation,

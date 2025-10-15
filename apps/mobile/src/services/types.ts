@@ -17,6 +17,7 @@ export interface StrategyStatus {
   status: StrategyStatusState;
   pnlPct: number;
   lastRunAt: string;
+  hasAllocation?: boolean;
 }
 
 export interface StrategyRunSummary {
@@ -135,4 +136,18 @@ export interface MarketWatchlist {
 export interface MarketWatchlistInput {
   name: string;
   symbols: string[];
+}
+
+export interface ClientMetrics {
+  clientId: string;
+  pnl: {
+    global: number;
+    run: number;
+    history: number[];
+  };
+  inventory: {
+    base: number;
+    cost: number;
+  };
+  lastTickerTs: number | null;
 }

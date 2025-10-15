@@ -86,13 +86,18 @@ export const StrategiesScreen: React.FC = () => {
             <ThemedText variant="caption" muted>
               {item.strategyId} • {(item.pnlPct ?? 0).toFixed(2)}%
             </ThemedText>
+            {!item.hasAllocation ? (
+              <ThemedText variant="caption" muted style={{ marginTop: theme.spacing(0.25) }}>
+                Not yet allocated – configure from the web dashboard.
+              </ThemedText>
+            ) : null}
           </View>
           <View style={{ flexDirection: 'row', gap: theme.spacing(1) }}>
             <PrimaryButton
               label={item.status === 'running' ? 'Pause' : 'Resume'}
               variant={item.status === 'running' ? 'secondary' : 'primary'}
               loading={controlling || pendingStrategyId === item.strategyId}
-              disabled={pendingStrategyId !== null && pendingStrategyId !== item.strategyId}
+              disabled={!item.hasAllocation || (pendingStrategyId !== null && pendingStrategyId !== item.strategyId)}
               onPress={() =>
                 handleToggle(item).catch((error) => {
                   if (error instanceof Error && error.message === 'Action cancelled') return;
@@ -103,7 +108,7 @@ export const StrategiesScreen: React.FC = () => {
             <PrimaryButton
               label="Details"
               variant="secondary"
-              disabled={pendingStrategyId !== null && pendingStrategyId !== item.strategyId}
+              disabled={!item.hasAllocation || (pendingStrategyId !== null && pendingStrategyId !== item.strategyId)}
               onPress={() => navigation.navigate('StrategyDetail', { strategyId: item.strategyId, preview: item })}
             />
           </View>

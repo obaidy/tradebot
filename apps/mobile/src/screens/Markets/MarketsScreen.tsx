@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -20,8 +21,9 @@ import {
   useGetMarketSnapshotsQuery,
   useGetMarketWatchlistsQuery,
   useUpdateMarketWatchlistMutation,
+  useGetClientMetricsQuery,
 } from '@/services/api';
-import type { MarketSnapshot, MarketWatchlist } from '@/services/types';
+import type { MarketSnapshot, MarketWatchlist, ClientMetrics } from '@/services/types';
 import { useAppSelector } from '@/hooks/store';
 import { formatApiError } from '@/utils/error';
 
@@ -65,6 +67,12 @@ export const MarketsScreen: React.FC = () => {
     refetch: refetchWatchlists,
     error: watchlistsError,
   } = useGetMarketWatchlistsQuery();
+  const {
+    data: metrics,
+    isFetching: fetchingMetrics,
+    refetch: refetchMetrics,
+    error: metricsError,
+  } = useGetClientMetricsQuery();
 
   const [createWatchlist, { isLoading: creating }] = useCreateMarketWatchlistMutation();
   const [updateWatchlist, { isLoading: updating }] = useUpdateMarketWatchlistMutation();
@@ -74,9 +82,10 @@ export const MarketsScreen: React.FC = () => {
   const [editorError, setEditorError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<{ message: string; tone: 'positive' | 'negative' } | null>(null);
 
-  const refreshing = fetchingSnapshots || fetchingWatchlists;
+  const refreshing = fetchingSnapshots || fetchingWatchlists || fetchingMetrics;
   const snapshotsErrorMessage = snapshotsError ? formatApiError(snapshotsError, 'Unable to load markets.') : null;
   const watchlistsErrorMessage = watchlistsError ? formatApiError(watchlistsError, 'Unable to load watchlists.') : null;
+  const metricsErrorMessage = metricsError ? formatApiError(metricsError, 'Unable to load portfolio metrics.') : null;
 
   const snapshotMap = useMemo(() => {
     const map = new Map<string, MarketSnapshot>();
@@ -98,7 +107,8 @@ export const MarketsScreen: React.FC = () => {
   const onRefresh = useCallback(() => {
     refetchSnapshots();
     refetchWatchlists();
-  }, [refetchSnapshots, refetchWatchlists]);
+    refetchMetrics();
+  }, [refetchSnapshots, refetchWatchlists, refetchMetrics]);
 
   const openCreate = () => {
     const defaultSymbols = (snapshots ?? []).slice(0, 3).map((snapshot) => snapshot.symbol.toUpperCase());
@@ -191,18 +201,79 @@ export const MarketsScreen: React.FC = () => {
       >
         <Surface>
           <ThemedText variant="title" weight="medium">
-            Market Movers
+            Portfolio Metrics
           </ThemedText>
-          {snapshotsErrorMessage ? (
+          {metricsErrorMessage ? (
             <ThemedText variant="caption" style={{ color: theme.colors.negative, marginTop: theme.spacing(1) }}>
-              {snapshotsErrorMessage}
+              {metricsErrorMessage}
             </ThemedText>
           ) : null}
           {networkStatus === 'offline' ? (
             <ThemedText variant="caption" style={{ color: theme.colors.warning, marginTop: theme.spacing(1) }}>
-              Offline mode – showing cached quotes.
+              Offline mode – showing cached metrics.
             </ThemedText>
           ) : null}
+          {fetchingMetrics && !metrics ? (
+            <View style={{ paddingVertical: theme.spacing(2), alignItems: 'center' }}>
+              <ActivityIndicator color={theme.colors.accent} />
+            </View>
+          ) : metrics ? (
+            <View style={{ marginTop: theme.spacing(1.5), gap: theme.spacing(1.5) }}>
+              <View style={{ flexDirection: 'row', gap: theme.spacing(1), flexWrap: 'wrap' }}>
+                <Surface variant="secondary" style={{ flex: 1, minWidth: 140 }}>
+                  <ThemedText variant="caption" muted>
+                    Global P&L
+                  </ThemedText>
+                  <ThemedText
+                    variant="title"
+                    weight="bold"
+                    style={{ color: metrics.pnl.global >= 0 ? theme.colors.positive : theme.colors.negative }}
+                  >
+                    {formatCurrency(metrics.pnl.global)}
+                  </ThemedText>
+                </Surface>
+                <Surface variant="secondary" style={{ flex: 1, minWidth: 140 }}>
+                  <ThemedText variant="caption" muted>
+                    Session P&L
+                  </ThemedText>
+                  <ThemedText
+                    variant="title"
+                    weight="bold"
+                    style={{ color: metrics.pnl.run >= 0 ? theme.colors.positive : theme.colors.negative }}
+                  >
+                    {formatCurrency(metrics.pnl.run)}
+                  </ThemedText>
+                </Surface>
+                <Surface variant="secondary" style={{ flex: 1, minWidth: 140 }}>
+                  <ThemedText variant="caption" muted>
+                    Inventory
+                  </ThemedText>
+                  <ThemedText variant="title" weight="bold">
+                    {metrics.inventory.base.toLocaleString()} units
+                  </ThemedText>
+                  <ThemedText variant="caption" muted>
+                    Book cost {formatCurrency(metrics.inventory.cost)}
+                  </ThemedText>
+                </Surface>
+              </View>
+              {metrics.pnl.history.length ? (
+                <Surface variant="secondary" style={{ padding: theme.spacing(1.5) }}>
+                  <ThemedText variant="caption" muted>
+                    P&L history
+                  </ThemedText>
+                  <Sparkline
+                    data={metrics.pnl.history.slice(-32)}
+                    color={theme.colors.accent}
+                    height={56}
+                  />
+                </Surface>
+              ) : null}
+            </View>
+          ) : (
+            <View style={{ paddingVertical: theme.spacing(2), alignItems: 'center' }}>
+              <ThemedText muted>Metrics will appear once trading activity starts.</ThemedText>
+            </View>
+          )}
         </Surface>
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing(1.5) }}>

@@ -22,6 +22,7 @@ import {
   fetchMarketSnapshots,
   fetchDefaultWatchlists,
   fetchStrategyDetail,
+  fetchClientMetricsSnapshot,
 } from './dataService';
 import type { MarketWatchlist } from './dataService';
 
@@ -443,6 +444,21 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
         sendJson(res, 200, { id: watchlistId, deleted: true });
         return true;
       }
+    }
+
+    if (method === 'GET' && resourcePath === '/v1/metrics') {
+      const clientId = resolveClientId(null, authResult.auth.clientIds);
+      if (!clientId) {
+        sendError(res, 400, 'client_scope_missing');
+        return true;
+      }
+      const snapshot = await fetchClientMetricsSnapshot(pool, clientId);
+      if (!snapshot) {
+        sendError(res, 404, 'metrics_not_found');
+        return true;
+      }
+      sendJson(res, 200, snapshot);
+      return true;
     }
 
     if (method === 'DELETE' && resourcePath === '/v1/account') {
