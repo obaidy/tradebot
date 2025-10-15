@@ -19,6 +19,23 @@ export interface StrategyStatus {
   lastRunAt: string;
 }
 
+export interface StrategyRunSummary {
+  runId: string;
+  status: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  pnlPct?: number;
+  notes?: string;
+}
+
+export interface StrategyDetail {
+  strategy: StrategyStatus;
+  allocationPct: number | null;
+  allocationRunMode: StrategyRunMode;
+  recentRuns: StrategyRunSummary[];
+  lastConfig?: Record<string, unknown> | null;
+}
+
 export interface DashboardSummaryResponse {
   portfolio: PortfolioSummary;
   strategies: StrategyStatus[];
@@ -94,4 +111,28 @@ export interface DeviceRegistrationPayload {
   pushToken?: string;
   platform: 'ios' | 'android';
   appVersion: string;
+}
+
+export interface MarketSnapshot {
+  symbol: string;
+  price: number;
+  change24hPct: number;
+  volumeUsd24h: number;
+  spreadBps?: number;
+  high24h?: number;
+  low24h?: number;
+  updatedAt: string;
+  sparkline?: number[];
+}
+
+export interface MarketWatchlist {
+  id: string;
+  name: string;
+  symbols: string[];
+  updatedAt: string;
+}
+
+export interface MarketWatchlistInput {
+  name: string;
+  symbols: string[];
 }

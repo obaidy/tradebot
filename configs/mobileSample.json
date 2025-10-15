@@ -71,5 +71,78 @@
       "description": "Manual kill switch dry-run completed successfully.",
       "createdAt": "2025-01-01T07:58:00.000Z"
     }
-  ]
+  ],
+  "markets": {
+    "snapshots": [
+      {
+        "symbol": "BTC/USDT",
+        "price": 64250.12,
+        "change24hPct": 1.82,
+        "volumeUsd24h": 128500000.0,
+        "spreadBps": 3.8,
+        "high24h": 65120.0,
+        "low24h": 62940.0,
+        "updatedAt": "2025-01-01T08:30:00.000Z",
+        "sparkline": [61250, 61840, 62310, 63120, 64000, 64550, 64250]
+      },
+      {
+        "symbol": "ETH/USDT",
+        "price": 3410.45,
+        "change24hPct": 2.41,
+        "volumeUsd24h": 68450000.0,
+        "spreadBps": 4.5,
+        "high24h": 3475.0,
+        "low24h": 3298.0,
+        "updatedAt": "2025-01-01T08:30:00.000Z",
+        "sparkline": [3180, 3225, 3290, 3345, 3390, 3425, 3410]
+      },
+      {
+        "symbol": "SOL/USDT",
+        "price": 156.9,
+        "change24hPct": -1.2,
+        "volumeUsd24h": 18400000.0,
+        "spreadBps": 6.2,
+        "high24h": 162.3,
+        "low24h": 151.8,
+        "updatedAt": "2025-01-01T08:30:00.000Z",
+        "sparkline": [152, 154, 158, 161, 160, 158, 156]
+      },
+      {
+        "symbol": "AVAX/USDT",
+        "price": 54.26,
+        "change24hPct": 0.9,
+        "volumeUsd24h": 7200000.0,
+        "spreadBps": 7.1,
+        "high24h": 55.8,
+        "low24h": 52.6,
+        "updatedAt": "2025-01-01T08:30:00.000Z",
+        "sparkline": [49, 50, 52, 53, 54, 55, 54]
+      },
+      {
+        "symbol": "BTC/USDT.PERP",
+        "price": 64210.75,
+        "change24hPct": 1.76,
+        "volumeUsd24h": 223400000.0,
+        "spreadBps": 2.4,
+        "high24h": 65080.0,
+        "low24h": 63110.0,
+        "updatedAt": "2025-01-01T08:30:00.000Z",
+        "sparkline": [61000, 61650, 62400, 63330, 64020, 64680, 64210]
+      }
+    ],
+    "watchlists": [
+      {
+        "id": "core",
+        "name": "Core Majors",
+        "symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+        "updatedAt": "2025-01-01T08:10:00.000Z"
+      },
+      {
+        "id": "perps",
+        "name": "Perp Desk",
+        "symbols": ["BTC/USDT.PERP", "ETH/USDT", "AVAX/USDT"],
+        "updatedAt": "2025-01-01T08:05:00.000Z"
+      }
+    ]
+  }
 }

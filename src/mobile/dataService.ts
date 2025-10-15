@@ -37,6 +37,23 @@ export interface StrategyStatus {
   lastRunAt: string;
 }
 
+export interface StrategyRunSummary {
+  runId: string;
+  status: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  pnlPct?: number;
+  notes?: string;
+}
+
+export interface StrategyDetail {
+  strategy: StrategyStatus;
+  allocationPct: number | null;
+  allocationRunMode: 'live' | 'paper';
+  recentRuns: StrategyRunSummary[];
+  lastConfig?: Record<string, unknown> | null;
+}
+
 export interface ActivityEntry {
   id: string;
   type: ActivityType;
@@ -53,9 +70,32 @@ export interface ActivityFeed {
   nextCursor?: string;
 }
 
+export interface MarketSnapshot {
+  symbol: string;
+  price: number;
+  change24hPct: number;
+  volumeUsd24h: number;
+  spreadBps?: number;
+  high24h?: number;
+  low24h?: number;
+  updatedAt: string;
+  sparkline?: number[];
+}
+
+export interface MarketWatchlist {
+  id: string;
+  name: string;
+  symbols: string[];
+  updatedAt: string;
+}
+
 interface SampleDataShape {
   dashboard: DashboardSummary;
   activity: ActivityEntry[];
+  markets?: {
+    snapshots?: MarketSnapshot[];
+    watchlists?: MarketWatchlist[];
+  };
 }
 
 let cachedSampleData: SampleDataShape | null = null;
@@ -108,6 +148,7 @@ interface StrategyAllocationRow {
 }
 
 interface StrategyRunRow {
+  id?: number | null;
   strategy_id: string | null;
   status: string | null;
   started_at: Date | null;
@@ -302,6 +343,101 @@ export async function fetchActivityFeed(
   return {
     entries: combined,
     nextCursor,
+  };
+}
+
+export async function fetchMarketSnapshots(_pool: Pool, _clientId: string): Promise<MarketSnapshot[]> {
+  const sampleData = await loadSampleData();
+  if (sampleData?.markets?.snapshots?.length) {
+    return sampleData.markets.snapshots.map((snapshot) => ({
+      ...snapshot,
+      updatedAt: snapshot.updatedAt ?? new Date().toISOString(),
+    }));
+  }
+  return [];
+}
+
+export async function fetchDefaultWatchlists(): Promise<MarketWatchlist[]> {
+  const sampleData = await loadSampleData();
+  if (sampleData?.markets?.watchlists?.length) {
+    return sampleData.markets.watchlists.map((watchlist) => ({
+      ...watchlist,
+      updatedAt: watchlist.updatedAt ?? new Date().toISOString(),
+    }));
+  }
+  return [
+    {
+      id: 'core',
+      name: 'Core Majors',
+      symbols: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'],
+      updatedAt: new Date().toISOString(),
+    },
+  ];
+}
+
+export async function fetchStrategyDetail(pool: Pool, clientId: string, strategyId: string): Promise<StrategyDetail | null> {
+  const strategies = await fetchStrategies(pool, clientId);
+  let base = strategies.find((item) => item.strategyId === strategyId) ?? null;
+
+  if (!base) {
+    const sampleData = await loadSampleData();
+    const sampleStrategy = sampleData?.dashboard?.strategies?.find((item) => item.strategyId === strategyId);
+    if (sampleStrategy) {
+      base = sampleStrategy;
+    }
+  }
+
+  if (!base) {
+    return null;
+  }
+
+  const allocationRes = await pool.query<{ weight_pct: number | null; run_mode: string | null }>(
+    `SELECT weight_pct, run_mode
+     FROM client_strategy_allocations
+     WHERE client_id = $1 AND strategy_id = $2
+     LIMIT 1`,
+    [clientId, strategyId]
+  );
+  const allocationRow = allocationRes.rows[0] ?? null;
+
+  const runsRes = await pool.query<StrategyRunRow>(
+    `SELECT id,
+            COALESCE(params_json->>'strategyId', params_json->>'strategy_id') AS strategy_id,
+            status,
+            started_at,
+            ended_at,
+            params_json,
+            rate_limit_meta
+     FROM bot_runs
+     WHERE client_id = $1
+       AND (params_json->>'strategyId' = $2 OR params_json->>'strategy_id' = $2)
+     ORDER BY started_at DESC
+     LIMIT 20`,
+    [clientId, strategyId]
+  );
+
+  const recentRuns: StrategyRunSummary[] = runsRes.rows.map((row) => {
+    const rateMeta = (row.rate_limit_meta ?? {}) as Record<string, unknown>;
+    const pnlPctValue = rateMeta?.pnlPct ?? rateMeta?.pnl ?? null;
+    return {
+      runId: row.strategy_id ? `${row.strategy_id}:${row.started_at?.getTime() ?? ''}` : String(row.id ?? ''),
+      status: (row.status ?? 'unknown').toString(),
+      startedAt: row.started_at ? row.started_at.toISOString() : null,
+      endedAt: row.ended_at ? row.ended_at.toISOString() : null,
+      pnlPct: typeof pnlPctValue === 'number' ? Number(pnlPctValue) : undefined,
+      notes: typeof rateMeta?.note === 'string' ? (rateMeta.note as string) : undefined,
+    };
+  });
+
+  const lastConfig = (runsRes.rows[0]?.params_json ?? null) as Record<string, unknown> | null;
+
+  return {
+    strategy: base,
+    allocationPct: allocationRow?.weight_pct !== undefined && allocationRow?.weight_pct !== null ? Number(allocationRow.weight_pct) : null,
+    allocationRunMode:
+      allocationRow?.run_mode && allocationRow.run_mode.toLowerCase() === 'live' ? 'live' : base.runMode,
+    recentRuns,
+    lastConfig,
   };
 }
 

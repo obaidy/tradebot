@@ -1,6 +1,7 @@
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
 import { Socket } from 'net';
+import crypto from 'crypto';
 import { Pool } from 'pg';
 import { WebSocketServer } from 'ws';
 import { CONFIG } from '../config';
@@ -18,7 +19,11 @@ import {
   fetchActivityFeed,
   fetchDashboardSummary,
   fetchStrategies,
+  fetchMarketSnapshots,
+  fetchDefaultWatchlists,
+  fetchStrategyDetail,
 } from './dataService';
+import type { MarketWatchlist } from './dataService';
 
 interface JsonBodyResult {
   raw: string;
@@ -39,6 +44,39 @@ let serverStarted = false;
 
 const MOBILE_PREFIX = '/mobile';
 const WEBSOCKET_OPEN = 1;
+
+const watchlistStore = new Map<string, MarketWatchlist[]>();
+
+async function ensureWatchlistsForUser(userId: string): Promise<MarketWatchlist[]> {
+  const existing = watchlistStore.get(userId);
+  if (existing) {
+    return existing;
+  }
+  const defaults = (await fetchDefaultWatchlists()).map((watchlist) => ({
+    ...watchlist,
+    id: watchlist.id || crypto.randomUUID(),
+    symbols: watchlist.symbols.map((symbol) => String(symbol).toUpperCase()),
+  }));
+  watchlistStore.set(userId, defaults);
+  return defaults;
+}
+
+function cloneWatchlists(userId: string): MarketWatchlist[] {
+  return (watchlistStore.get(userId) ?? []).map((item) => ({ ...item, symbols: [...item.symbols] }));
+}
+
+function sanitizeSymbols(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of input) {
+    const symbol = String(value).toUpperCase().trim();
+    if (!symbol.length || seen.has(symbol)) continue;
+    seen.add(symbol);
+    result.push(symbol);
+  }
+  return result;
+}
 
 type MobileRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
 type MobileUpgradeHandler = (req: IncomingMessage, socket: Socket, head: Buffer) => boolean;
@@ -321,6 +359,92 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
       return true;
     }
 
+    if (method === 'GET' && resourcePath === '/v1/markets/snapshots') {
+      const clientId = resolveClientId(null, authResult.auth.clientIds);
+      if (!clientId) {
+        sendError(res, 400, 'client_scope_missing');
+        return true;
+      }
+      const snapshots = await fetchMarketSnapshots(pool, clientId);
+      sendJson(res, 200, snapshots);
+      return true;
+    }
+
+    if (method === 'GET' && resourcePath === '/v1/markets/watchlists') {
+      const userId = authResult.auth.user.id;
+      await ensureWatchlistsForUser(userId);
+      sendJson(res, 200, cloneWatchlists(userId));
+      return true;
+    }
+
+    if (method === 'POST' && resourcePath === '/v1/markets/watchlists') {
+      const body = await readJsonBody(req);
+      const input = body?.parsed ?? {};
+      const name = typeof input.name === 'string' ? input.name.trim() : '';
+      const symbols = sanitizeSymbols(input.symbols);
+      if (!name.length || !symbols.length) {
+        sendError(res, 400, 'invalid_watchlist_payload', 'Name and at least one symbol are required.');
+        return true;
+      }
+      const userId = authResult.auth.user.id;
+      await ensureWatchlistsForUser(userId);
+      const current = cloneWatchlists(userId);
+      const watchlist: MarketWatchlist = {
+        id: crypto.randomUUID(),
+        name,
+        symbols,
+        updatedAt: new Date().toISOString(),
+      };
+      current.push(watchlist);
+      watchlistStore.set(userId, current);
+      sendJson(res, 201, watchlist);
+      return true;
+    }
+
+    const watchlistMatch = resourcePath.match(/^\/v1\/markets\/watchlists\/([^/]+)$/);
+    if (watchlistMatch) {
+      const watchlistId = decodeURIComponent(watchlistMatch[1]);
+      const userId = authResult.auth.user.id;
+      await ensureWatchlistsForUser(userId);
+      if (method === 'PUT') {
+        const body = await readJsonBody(req);
+        const input = body?.parsed ?? {};
+        const name = typeof input.name === 'string' ? input.name.trim() : '';
+        const symbols = sanitizeSymbols(input.symbols);
+        if (!name.length || !symbols.length) {
+          sendError(res, 400, 'invalid_watchlist_payload', 'Name and at least one symbol are required.');
+          return true;
+        }
+        const current = cloneWatchlists(userId);
+        const idx = current.findIndex((item) => item.id === watchlistId);
+        if (idx === -1) {
+          sendError(res, 404, 'watchlist_not_found');
+          return true;
+        }
+        current[idx] = {
+          ...current[idx],
+          name,
+          symbols,
+          updatedAt: new Date().toISOString(),
+        };
+        watchlistStore.set(userId, current);
+        sendJson(res, 200, current[idx]);
+        return true;
+      }
+
+      if (method === 'DELETE') {
+        const current = cloneWatchlists(userId);
+        const next = current.filter((item) => item.id !== watchlistId);
+        if (next.length === current.length) {
+          sendError(res, 404, 'watchlist_not_found');
+          return true;
+        }
+        watchlistStore.set(userId, next);
+        sendJson(res, 200, { id: watchlistId, deleted: true });
+        return true;
+      }
+    }
+
     if (method === 'POST' && resourcePath === '/v1/controls/kill-switch') {
       const body = await readJsonBody(req);
       const input = body?.parsed ?? {};
@@ -550,6 +674,23 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
       }
       const strategies = await fetchStrategies(pool, clientId);
       sendJson(res, 200, strategies);
+      return true;
+    }
+
+    const strategyDetailMatch = resourcePath.match(/^\/v1\/strategies\/([^/]+)$/);
+    if (strategyDetailMatch && method === 'GET') {
+      const strategyId = decodeURIComponent(strategyDetailMatch[1]);
+      const clientId = resolveClientId(parsedUrl.searchParams.get('clientId'), authResult.auth.clientIds);
+      if (!clientId) {
+        sendError(res, 400, 'client_scope_missing');
+        return true;
+      }
+      const detail = await fetchStrategyDetail(pool, clientId, strategyId);
+      if (!detail) {
+        sendError(res, 404, 'strategy_not_found');
+        return true;
+      }
+      sendJson(res, 200, detail);
       return true;
     }
 

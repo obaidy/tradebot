@@ -62,7 +62,7 @@ function deriveWsFromApi(apiUrl: string) {
 export default ({ config }: ConfigContext): ExpoConfig => {
   const defaults = resolveDefaults();
 
-  return {
+  const expoConfig: ExpoConfig = {
     ...config,
     name: 'TradeBot Mobile',
     slug: 'tradebot-mobile',
@@ -70,7 +70,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     scheme: 'tradebot',
     version: '0.1.0',
     orientation: 'portrait',
-    entryPoint: './index.js',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
     splash: {
@@ -112,4 +111,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       websocketUrl: process.env.MOBILE_WS_URL || defaults.ws,
     }
   };
+
+  (expoConfig as unknown as { entryPoint?: string }).entryPoint = './index.js';
+
+  return expoConfig;
 };

@@ -6,14 +6,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/theme';
 import { DashboardScreen } from '@/screens/Dashboard/DashboardScreen';
 import { StrategiesScreen } from '@/screens/Strategies/StrategiesScreen';
+import { StrategyDetailScreen } from '@/screens/Strategies/StrategyDetailScreen';
 import { MarketsScreen } from '@/screens/Markets/MarketsScreen';
 import { AlertsScreen } from '@/screens/Alerts/AlertsScreen';
 import { SettingsScreen } from '@/screens/Settings/SettingsScreen';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import type { StrategyStatus } from '@/services/types';
 
 export type RootStackParamList = {
   Tabs: undefined;
-  StrategyDetail: { strategyId: string };
+  StrategyDetail: { strategyId: string; preview?: StrategyStatus };
 };
 
 const Tab = createBottomTabNavigator();
@@ -74,8 +76,19 @@ export const AppNavigator: React.FC = () => {
 
   return (
     <NavigationContainer theme={navigationTheme}>
-      <Stack.Navigator>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: theme.colors.surface },
+          headerTintColor: theme.colors.textPrimary,
+          headerTitleStyle: {
+            fontFamily: theme.typography.fontFamily,
+            fontWeight: theme.typography.weightMedium as any,
+          },
+          contentStyle: { backgroundColor: theme.colors.background },
+        }}
+      >
         <Stack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
+        <Stack.Screen name="StrategyDetail" component={StrategyDetailScreen} options={{ title: 'Strategy Detail' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

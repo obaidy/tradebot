@@ -1,19 +1,29 @@
 import React, { useCallback, useState } from 'react';
 import { FlatList, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Crypto from 'expo-crypto';
 import { useTheme } from '@/theme';
 import { Surface } from '@/components/Surface';
 import { ThemedText } from '@/components/ThemedText';
 import { PrimaryButton } from '@/components/PrimaryButton';
-import { useGetStrategiesQuery, useControlStrategyMutation } from '@/services/api';
+import { useGetStrategiesQuery, useControlStrategyMutation, tradebotApi } from '@/services/api';
 import type { StrategyStatus } from '@/services/types';
+import { useAppDispatch, useAppSelector } from '@/hooks/store';
+import { formatApiError } from '@/utils/error';
+import type { RootStackParamList } from '@/navigation/AppNavigator';
 
 export const StrategiesScreen: React.FC = () => {
   const theme = useTheme();
-  const { data: strategies, isFetching, refetch } = useGetStrategiesQuery();
+  const dispatch = useAppDispatch();
+  const networkStatus = useAppSelector((state) => state.app.networkStatus);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { data: strategies, isFetching, refetch, error } = useGetStrategiesQuery();
   const [controlStrategy, { isLoading: controlling }] = useControlStrategyMutation();
   const [controlError, setControlError] = useState<string | null>(null);
+  const [pendingStrategyId, setPendingStrategyId] = useState<string | null>(null);
+  const strategiesErrorMessage = error ? formatApiError(error, 'Failed to load strategies') : null;
 
   const promptBiometric = useCallback(async (promptMessage: string) => {
     const result = await LocalAuthentication.authenticateAsync({
@@ -31,44 +41,76 @@ export const StrategiesScreen: React.FC = () => {
   const handleToggle = useCallback(
     async (item: StrategyStatus) => {
       setControlError(null);
-      const biometricSignature = await promptBiometric(
-        item.status === 'running' ? 'Pause strategy' : 'Resume strategy'
+      const intent = item.status === 'running' ? 'Pause strategy' : 'Resume strategy';
+      const biometricSignature = await promptBiometric(intent);
+      const nextStatus = item.status === 'running' ? 'paused' : 'running';
+      setPendingStrategyId(item.strategyId);
+      const patchResult = dispatch(
+        tradebotApi.util.updateQueryData('getStrategies', undefined, (draft) => {
+          if (!draft) return;
+          const target = draft.find((strategy) => strategy.strategyId === item.strategyId);
+          if (target) {
+            target.status = nextStatus;
+          }
+        })
       );
-      await controlStrategy({
-        strategyId: item.strategyId,
-        action: item.status === 'running' ? 'pause' : 'resume',
-        confirmToken: Crypto.randomUUID(),
-        biometricSignature,
-      }).unwrap();
+      try {
+        await controlStrategy({
+          strategyId: item.strategyId,
+          action: nextStatus === 'running' ? 'resume' : 'pause',
+          confirmToken: Crypto.randomUUID(),
+          biometricSignature,
+        }).unwrap();
+        await refetch();
+      } catch (err) {
+        patchResult?.undo?.();
+        if (err instanceof Error && err.message === 'Action cancelled') {
+          throw err;
+        }
+        const message = formatApiError(err, 'Unable to update strategy');
+        setControlError(message);
+        throw err instanceof Error ? err : new Error(message);
+      } finally {
+        setPendingStrategyId(null);
+      }
     },
-    [controlStrategy, promptBiometric]
+    [controlStrategy, dispatch, promptBiometric, refetch]
   );
 
   const renderItem = useCallback(
     ({ item }: { item: StrategyStatus }) => (
-      <Surface style={{ marginBottom: theme.spacing(2) }}>
+      <Surface style={{ marginBottom: theme.spacing(2), gap: theme.spacing(1.25) }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, paddingRight: theme.spacing(1) }}>
             <ThemedText weight="medium">{item.name}</ThemedText>
             <ThemedText variant="caption" muted>
               {item.strategyId} • {(item.pnlPct ?? 0).toFixed(2)}%
             </ThemedText>
           </View>
-          <PrimaryButton
-            label={item.status === 'running' ? 'Pause' : 'Resume'}
-            variant={item.status === 'running' ? 'secondary' : 'primary'}
-            loading={controlling}
-            onPress={() =>
-              handleToggle(item).catch((error) => {
-                if (error instanceof Error && error.message === 'Action cancelled') return;
-                setControlError(error instanceof Error ? error.message : 'Unable to update strategy');
-              })
-            }
-          />
+          <View style={{ flexDirection: 'row', gap: theme.spacing(1) }}>
+            <PrimaryButton
+              label={item.status === 'running' ? 'Pause' : 'Resume'}
+              variant={item.status === 'running' ? 'secondary' : 'primary'}
+              loading={controlling || pendingStrategyId === item.strategyId}
+              disabled={pendingStrategyId !== null && pendingStrategyId !== item.strategyId}
+              onPress={() =>
+                handleToggle(item).catch((error) => {
+                  if (error instanceof Error && error.message === 'Action cancelled') return;
+                  setControlError(formatApiError(error, 'Unable to update strategy'));
+                })
+              }
+            />
+            <PrimaryButton
+              label="Details"
+              variant="secondary"
+              disabled={pendingStrategyId !== null && pendingStrategyId !== item.strategyId}
+              onPress={() => navigation.navigate('StrategyDetail', { strategyId: item.strategyId, preview: item })}
+            />
+          </View>
         </View>
       </Surface>
     ),
-    [controlling, handleToggle, theme]
+    [controlling, handleToggle, navigation, pendingStrategyId, theme]
   );
 
   return (
@@ -80,17 +122,31 @@ export const StrategiesScreen: React.FC = () => {
       refreshing={isFetching}
       renderItem={renderItem}
       ListHeaderComponent={
-        controlError ? (
-          <View style={{ paddingBottom: theme.spacing(1) }}>
-            <ThemedText variant="caption" style={{ color: theme.colors.negative }}>
-              {controlError}
-            </ThemedText>
+        strategiesErrorMessage || controlError || networkStatus === 'offline' ? (
+          <View style={{ paddingBottom: theme.spacing(1), gap: theme.spacing(0.5) }}>
+            {strategiesErrorMessage ? (
+              <ThemedText variant="caption" style={{ color: theme.colors.negative }}>
+                {strategiesErrorMessage}
+              </ThemedText>
+            ) : null}
+            {networkStatus === 'offline' ? (
+              <ThemedText variant="caption" style={{ color: theme.colors.warning }}>
+                Offline mode – strategy list will update when connectivity returns.
+              </ThemedText>
+            ) : null}
+            {controlError ? (
+              <ThemedText variant="caption" style={{ color: theme.colors.negative }}>
+                {controlError}
+              </ThemedText>
+            ) : null}
           </View>
         ) : undefined
       }
       ListEmptyComponent={() => (
         <View style={{ padding: theme.spacing(4) }}>
-          <ThemedText muted>No strategies available.</ThemedText>
+          <ThemedText muted>
+            {strategiesErrorMessage ?? 'No strategies available.'}
+          </ThemedText>
         </View>
       )}
     />

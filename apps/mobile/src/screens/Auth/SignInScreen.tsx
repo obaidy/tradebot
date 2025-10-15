@@ -13,6 +13,7 @@ import { selectAuthError, setAuthenticated, setAuthError } from '@/state/slices/
 import { beginPkceSignIn, exchangeCodeForSession, registerDevice, verifyMfaChallenge } from '@/services/authClient';
 import { saveSession } from '@/services/sessionStorage';
 import type { PersistedSession } from '@/services/sessionStorage';
+import { registerForPushNotifications } from '@/services/pushNotifications';
 import { Verify2FAScreen } from './Verify2FAScreen';
 
 export const SignInScreen: React.FC = () => {
@@ -23,13 +24,31 @@ export const SignInScreen: React.FC = () => {
   const [mfaChallenge, setMfaChallenge] = useState<{ challengeId: string; deviceId: string } | null>(null);
 
   const finalizeSession = async (session: PersistedSession) => {
-    await saveSession(session);
-    dispatch(setAuthenticated(session));
+    let pushToken: string | null = null;
+    try {
+      pushToken = await registerForPushNotifications();
+    } catch (err) {
+      if (__DEV__) {
+        console.warn('[notifications] registerForPushNotifications failed', err);
+      }
+    }
+
+    const sessionWithPush: PersistedSession = pushToken ? { ...session, pushToken } : session;
+    await saveSession(sessionWithPush);
+    dispatch(
+      setAuthenticated({
+        tokens: session.tokens,
+        user: session.user,
+        deviceId: session.deviceId,
+        pushToken: pushToken ?? undefined,
+      })
+    );
     await registerDevice(
       {
         deviceId: session.deviceId,
         platform: Platform.OS === 'ios' ? 'ios' : 'android',
         appVersion: Device.osVersion ?? 'unknown',
+        pushToken: pushToken ?? undefined,
       },
       session.tokens.accessToken
     );

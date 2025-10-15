@@ -22,6 +22,7 @@ export interface AuthState extends AuthTokens {
   user?: UserProfile;
   deviceId?: string;
   error?: string;
+  pushToken?: string;
 }
 
 const initialState: AuthState = {
@@ -32,6 +33,7 @@ const initialState: AuthState = {
   user: undefined,
   deviceId: undefined,
   error: undefined,
+  pushToken: undefined,
 };
 
 export const authSlice = createSlice({
@@ -44,7 +46,7 @@ export const authSlice = createSlice({
     },
     setAuthenticated(
       state,
-      action: PayloadAction<{ tokens: AuthTokens; user: UserProfile; deviceId: string }>
+      action: PayloadAction<{ tokens: AuthTokens; user: UserProfile; deviceId: string; pushToken?: string }>
     ) {
       state.status = 'authenticated';
       state.accessToken = action.payload.tokens.accessToken;
@@ -53,10 +55,17 @@ export const authSlice = createSlice({
       state.user = action.payload.user;
       state.deviceId = action.payload.deviceId;
       state.error = undefined;
+      state.pushToken = action.payload.pushToken;
     },
-    updateAccessToken(state, action: PayloadAction<{ accessToken: string; expiresAt: number }>) {
+    updateAccessToken(
+      state,
+      action: PayloadAction<{ accessToken: string; expiresAt: number; refreshToken?: string }>
+    ) {
       state.accessToken = action.payload.accessToken;
       state.expiresAt = action.payload.expiresAt;
+      if (action.payload.refreshToken) {
+        state.refreshToken = action.payload.refreshToken;
+      }
     },
     setAuthError(state, action: PayloadAction<string>) {
       state.status = 'error';
@@ -68,10 +77,13 @@ export const authSlice = createSlice({
     signOut() {
       return { ...initialState, status: 'signedOut' };
     },
+    setPushToken(state, action: PayloadAction<string | undefined>) {
+      state.pushToken = action.payload;
+    },
   },
 });
 
-export const { beginAuth, setAuthenticated, setAuthError, signOut, updateAccessToken } = authSlice.actions;
+export const { beginAuth, setAuthenticated, setAuthError, signOut, updateAccessToken, setPushToken } = authSlice.actions;
 
 export const selectAuthState = (state: { auth: AuthState }) => state.auth;
 export const selectAccessToken = (state: { auth: AuthState }) => state.auth.accessToken;
@@ -79,5 +91,6 @@ export const selectAuthStatus = (state: { auth: AuthState }) => state.auth.statu
 export const selectCurrentUser = (state: { auth: AuthState }) => state.auth.user;
 export const selectDeviceId = (state: { auth: AuthState }) => state.auth.deviceId;
 export const selectAuthError = (state: { auth: AuthState }) => state.auth.error;
+export const selectPushToken = (state: { auth: AuthState }) => state.auth.pushToken;
 
 export default authSlice.reducer;

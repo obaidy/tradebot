@@ -1,22 +1,42 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FlatList, View } from 'react-native';
 import { useTheme } from '@/theme';
 import { Surface } from '@/components/Surface';
 import { ThemedText } from '@/components/ThemedText';
-import { PrimaryButton } from '@/components/PrimaryButton';
+import { NotificationPreferencesForm } from '@/components/NotificationPreferencesForm';
 import {
   useGetActivityFeedQuery,
   useGetNotificationPreferencesQuery,
   useUpdateNotificationPreferencesMutation,
 } from '@/services/api';
+import type { NotificationPreferences } from '@/services/types';
+import { formatApiError } from '@/utils/error';
 
 export const AlertsScreen: React.FC = () => {
   const theme = useTheme();
   const { data: feed, isFetching, refetch } = useGetActivityFeedQuery({ cursor: undefined });
-  const { data: preferences } = useGetNotificationPreferencesQuery();
+  const {
+    data: preferences,
+    error: preferencesError,
+    refetch: refetchPreferences,
+  } = useGetNotificationPreferencesQuery();
   const [updatePreferences, { isLoading: saving }] = useUpdateNotificationPreferencesMutation();
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const criticalEntries = useMemo(() => feed?.entries.filter((entry) => entry.severity === 'critical') ?? [], [feed]);
+  const queryErrorMessage = preferencesError ? formatApiError(preferencesError) : null;
+
+  const handleSave = async (next: NotificationPreferences) => {
+    setSaveError(null);
+    try {
+      await updatePreferences(next).unwrap();
+      await refetchPreferences();
+    } catch (err) {
+      const message = formatApiError(err);
+      setSaveError(message);
+      throw new Error(message);
+    }
+  };
 
   return (
     <FlatList
@@ -38,27 +58,13 @@ export const AlertsScreen: React.FC = () => {
         </Surface>
       )}
       ListHeaderComponent={() => (
-        <Surface variant="secondary">
-          <ThemedText variant="title" weight="medium">
-            Notification Preferences
-          </ThemedText>
-          <ThemedText variant="body" muted style={{ marginTop: theme.spacing(1) }}>
-            Critical alerts are always delivered. Adjust warning/info levels from the settings screen once the
-            preference endpoint is wired.
-          </ThemedText>
-          <PrimaryButton
-            style={{ marginTop: theme.spacing(1.5) }}
-            label="View Preferences"
-            variant="secondary"
-            loading={saving}
-            onPress={() => {
-              if (!preferences) return;
-              updatePreferences({
-                ...preferences,
-              }).catch(() => undefined);
-            }}
-          />
-        </Surface>
+        <NotificationPreferencesForm
+          preferences={preferences}
+          saving={saving}
+          onSave={handleSave}
+          onReset={() => refetchPreferences()}
+          error={queryErrorMessage ?? saveError}
+        />
       )}
       ListEmptyComponent={() => (
         <View style={{ padding: theme.spacing(4) }}>

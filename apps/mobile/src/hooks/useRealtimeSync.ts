@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import { useAppDispatch, useAppSelector } from '@/hooks/store';
 import { selectAccessToken } from '@/state/slices/authSlice';
 import { setLastSyncedAt, setWebsocketConnected } from '@/state/slices/appSlice';
@@ -12,6 +13,21 @@ const ACTIVITY_ARGS = { cursor: undefined } as const;
 export function useRealtimeSync() {
   const accessToken = useAppSelector(selectAccessToken);
   const dispatch = useAppDispatch();
+  const appState = useRef<AppStateStatus>(AppState.currentState);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      appState.current = nextState;
+      if (nextState === 'active') {
+        realtimeClient.resume();
+      } else {
+        realtimeClient.pause();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!accessToken) {
@@ -19,7 +35,9 @@ export function useRealtimeSync() {
       return;
     }
 
-    realtimeClient.connect(accessToken);
+    realtimeClient.connect(accessToken, {
+      tokenProvider: () => accessToken,
+    });
 
     const unsubscribeConnected = realtimeClient.on('connected', () => {
       dispatch(setWebsocketConnected(true));
@@ -62,4 +80,13 @@ export function useRealtimeSync() {
       unsubscribeActivity();
     };
   }, [accessToken, dispatch]);
+
+  useEffect(() => {
+    if (accessToken) {
+      realtimeClient.updateAccessToken(accessToken);
+      if (appState.current === 'active') {
+        realtimeClient.resume();
+      }
+    }
+  }, [accessToken]);
 }

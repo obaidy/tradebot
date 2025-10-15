@@ -18,6 +18,7 @@ import {
 } from '@/services/api';
 import type { ActivityEntry, DashboardSummaryResponse, StrategyStatus } from '@/services/types';
 import { loadActivitySnapshot, loadDashboardSnapshot } from '@/services/offlineCache';
+import { formatApiError } from '@/utils/error';
 
 type QuickAction = {
   id: string;
@@ -74,12 +75,33 @@ const severityToneMap = {
   info: 'neutral',
 } as const;
 
+const STALE_THRESHOLD_MS = 60 * 1000;
+
+const formatStaleness = (diffMs: number): string => {
+  if (diffMs < 60 * 1000) {
+    return `${Math.floor(diffMs / 1000)}s`;
+  }
+  const minutes = Math.floor(diffMs / (60 * 1000));
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h`;
+};
+
 export const DashboardScreen: React.FC = () => {
   const theme = useTheme();
   const websocketConnected = useAppSelector((state) => state.app.websocketConnected);
   const lastSyncedAt = useAppSelector((state) => state.app.lastSyncedAt);
+  const networkStatus = useAppSelector((state) => state.app.networkStatus);
 
-  const { data: summary, isLoading, refetch, isFetching } = useGetDashboardSummaryQuery();
+  const {
+    data: summary,
+    isLoading,
+    refetch,
+    isFetching,
+    error: summaryError,
+  } = useGetDashboardSummaryQuery();
   const { data: activity } = useGetActivityFeedQuery({ cursor: undefined });
   const [triggerKillSwitch, { isLoading: killLoading }] = useTriggerKillSwitchMutation();
   const [pauseAllControls, { isLoading: pauseLoading }] = usePauseAllControlsMutation();
@@ -104,6 +126,13 @@ export const DashboardScreen: React.FC = () => {
   const summaryData = summary ?? cachedSummary;
   const activityEntries = activity?.entries ?? cachedActivity;
   const isInitialLoading = isLoading && !summaryData;
+  const summaryErrorMessage = summaryError ? formatApiError(summaryError) : null;
+  const networkOffline = networkStatus === 'offline';
+  const lastUpdateSource = lastSyncedAt ?? summaryData?.portfolio.updatedAt;
+  const lastUpdateMs = lastUpdateSource ? new Date(lastUpdateSource).getTime() : null;
+  const nowMs = Date.now();
+  const dataStale = !!lastUpdateMs && nowMs - lastUpdateMs > STALE_THRESHOLD_MS;
+  const stalenessLabel = dataStale && lastUpdateMs ? formatStaleness(nowMs - lastUpdateMs) : null;
 
   const onRefresh = useCallback(() => {
     refetch();
@@ -284,9 +313,9 @@ export const DashboardScreen: React.FC = () => {
     [controlStrategy, promptBiometric]
   );
 
-  const connectionStatusTone = websocketConnected ? 'positive' : 'warning';
-  const connectionStatusLabel = websocketConnected ? 'Live connection' : 'Reconnecting…';
-  const updatedLabel = formatRelativeTime(lastSyncedAt ?? summaryData?.portfolio.updatedAt);
+  const connectionStatusTone = networkOffline ? 'negative' : websocketConnected ? 'positive' : 'warning';
+  const connectionStatusLabel = networkOffline ? 'Offline' : websocketConnected ? 'Live connection' : 'Reconnecting…';
+  const updatedLabel = lastUpdateSource ? formatRelativeTime(lastUpdateSource) : 'Waiting for data…';
 
   const netValue =
     summaryData?.portfolio.bankRollUsd !== undefined && summaryData?.portfolio.totalPnlUsd !== undefined
@@ -299,19 +328,27 @@ export const DashboardScreen: React.FC = () => {
       contentContainerStyle={{ padding: theme.spacing(2), gap: theme.spacing(2) }}
       refreshControl={<RefreshControl tintColor={theme.colors.accent} refreshing={isFetching} onRefresh={onRefresh} />}
     >
-      <Surface variant="secondary" style={{ paddingVertical: theme.spacing(1.5) }}>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
+      <Surface variant="secondary" style={{ paddingVertical: theme.spacing(1.5), gap: theme.spacing(1) }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing(1) }}>
           <StatusPill label={connectionStatusLabel} tone={connectionStatusTone} />
-          <ThemedText variant="caption" muted>
-            {updatedLabel}
-          </ThemedText>
+          {dataStale && stalenessLabel ? (
+            <StatusPill label={`Stale ${stalenessLabel}`} tone="warning" />
+          ) : null}
+          {networkOffline ? <StatusPill label="Offline cache" tone="warning" /> : null}
         </View>
+        <ThemedText variant="caption" muted>
+          {updatedLabel}
+        </ThemedText>
+        {summaryErrorMessage ? (
+          <ThemedText variant="caption" style={{ color: theme.colors.negative }}>
+            {summaryErrorMessage}
+          </ThemedText>
+        ) : null}
+        {networkOffline ? (
+          <ThemedText variant="caption" style={{ color: theme.colors.warning }}>
+            Offline mode – showing last cached snapshot.
+          </ThemedText>
+        ) : null}
       </Surface>
 
       <Surface>

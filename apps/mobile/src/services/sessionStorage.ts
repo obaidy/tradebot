@@ -7,6 +7,7 @@ export interface PersistedSession {
   tokens: AuthTokens;
   user: UserProfile;
   deviceId: string;
+  pushToken?: string;
 }
 
 export async function saveSession(session: PersistedSession) {
@@ -26,4 +27,17 @@ export async function loadSession(): Promise<PersistedSession | null> {
 
 export async function clearSession() {
   await SecureStore.deleteItemAsync(SESSION_KEY);
+}
+
+export async function updatePersistedSessionTokens(tokens: AuthTokens) {
+  const existing = await loadSession();
+  if (!existing) return;
+  await saveSession({
+    ...existing,
+    tokens: {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken ?? existing.tokens.refreshToken,
+      expiresAt: tokens.expiresAt,
+    },
+  });
 }

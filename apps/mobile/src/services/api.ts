@@ -12,6 +12,10 @@ import type {
   StrategyControlRequest,
   DeviceRegistrationPayload,
   StrategyStatus,
+  MarketSnapshot,
+  MarketWatchlist,
+  MarketWatchlistInput,
+  StrategyDetail,
 } from './types';
 
 export const tradebotApi = createApi({
@@ -27,7 +31,7 @@ export const tradebotApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ['Dashboard', 'Activity', 'Strategies', 'Notifications'],
+  tagTypes: ['Dashboard', 'Activity', 'Strategies', 'Notifications', 'Markets', 'Watchlists'],
   endpoints: (builder) => ({
     getDashboardSummary: builder.query<DashboardSummaryResponse, void>({
       query: () => 'v1/dashboard/summary',
@@ -56,6 +60,10 @@ export const tradebotApi = createApi({
               'Strategies',
             ]
           : ['Strategies'],
+    }),
+    getStrategyDetail: builder.query<StrategyDetail, string>({
+      query: (strategyId) => `v1/strategies/${strategyId}`,
+      providesTags: (result, error, arg) => [{ type: 'Strategies', id: arg }],
     }),
     updateNotificationPreferences: builder.mutation<NotificationPreferences, NotificationPreferences>({
       query: (body) => ({
@@ -104,6 +112,49 @@ export const tradebotApi = createApi({
         body,
       }),
     }),
+    getMarketSnapshots: builder.query<MarketSnapshot[], void>({
+      query: () => 'v1/markets/snapshots',
+      providesTags: ['Markets'],
+    }),
+    getMarketWatchlists: builder.query<MarketWatchlist[], void>({
+      query: () => 'v1/markets/watchlists',
+      providesTags: (result) =>
+        result
+          ? [...result.map((item) => ({ type: 'Watchlists' as const, id: item.id })), 'Watchlists']
+          : ['Watchlists'],
+    }),
+    createMarketWatchlist: builder.mutation<MarketWatchlist, MarketWatchlistInput>({
+      query: (body) => ({
+        url: 'v1/markets/watchlists',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Watchlists'],
+    }),
+    updateMarketWatchlist: builder.mutation<
+      MarketWatchlist,
+      { id: string; payload: MarketWatchlistInput }
+    >({
+      query: ({ id, payload }) => ({
+        url: `v1/markets/watchlists/${id}`,
+        method: 'PUT',
+        body: payload,
+      }),
+      invalidatesTags: (result, error, arg) => [
+        { type: 'Watchlists', id: arg.id },
+        'Watchlists',
+      ],
+    }),
+    deleteMarketWatchlist: builder.mutation<{ id: string }, { id: string }>({
+      query: ({ id }) => ({
+        url: `v1/markets/watchlists/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, arg) => [
+        { type: 'Watchlists', id: arg.id },
+        'Watchlists',
+      ],
+    }),
   }),
 });
 
@@ -112,10 +163,16 @@ export const {
   useGetActivityFeedQuery,
   useGetNotificationPreferencesQuery,
   useGetStrategiesQuery,
+  useGetStrategyDetailQuery,
   useUpdateNotificationPreferencesMutation,
   useTriggerKillSwitchMutation,
   usePauseAllControlsMutation,
   useResumeAllControlsMutation,
   useControlStrategyMutation,
   useRegisterDeviceMutation,
+  useGetMarketSnapshotsQuery,
+  useGetMarketWatchlistsQuery,
+  useCreateMarketWatchlistMutation,
+  useUpdateMarketWatchlistMutation,
+  useDeleteMarketWatchlistMutation,
 } = tradebotApi;
