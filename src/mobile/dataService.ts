@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { CONFIG } from '../config';
 import { listStrategies } from '../strategies';
+import type { StrategyDefinition } from '../strategies/registry';
 import type { StrategyRunMode } from '../strategies/types';
 
 export type StrategyState = 'running' | 'paused' | 'error';
@@ -37,6 +38,7 @@ export interface StrategyStatus {
   status: StrategyState;
   pnlPct: number;
   lastRunAt: string;
+  hasAllocation?: boolean;
 }
 
 export interface StrategyRunSummary {
@@ -115,6 +117,13 @@ interface SampleDataShape {
 }
 
 let cachedSampleData: SampleDataShape | null = null;
+
+function filterStrategiesByPlan(planId: string, registry: StrategyDefinition[]): StrategyDefinition[] {
+  const normalized = planId.toLowerCase();
+  return registry.filter((definition) =>
+    definition.allowedPlans.some((allowed) => String(allowed).toLowerCase() === normalized)
+  );
+}
 
 async function loadSampleData(): Promise<SampleDataShape | null> {
   if (cachedSampleData) return cachedSampleData;
@@ -271,8 +280,10 @@ export async function fetchStrategies(pool: Pool, clientId: string): Promise<Str
   const [allocationsRes, runsRes, clientRes] = await Promise.all([allocationsPromise, runsPromise, clientPromise]);
   const sampleDataPromise = loadSampleData();
 
-  const plan = (clientRes.rows[0]?.plan ?? CONFIG.MOBILE.DEFAULT_PLAN ?? 'starter') as string;
-  const allowedPlan = (value: string) => value.toLowerCase() === plan.toLowerCase();
+  const registry = listStrategies();
+  const planId = (clientRes.rows[0]?.plan ?? 'starter').toString();
+  const allowedDefinitionsRaw = filterStrategiesByPlan(planId, registry);
+  const allowedDefinitions = allowedDefinitionsRaw.length ? allowedDefinitionsRaw : registry;
 
   const latestRunByStrategy = new Map<string, StrategyRunRow>();
   for (const row of runsRes.rows) {
@@ -283,29 +294,19 @@ export async function fetchStrategies(pool: Pool, clientId: string): Promise<Str
     }
   }
 
-  const allocationsMap = new Map<string, StrategyAllocationRow>();
-  allocationsRes.rows.forEach((row) => allocationsMap.set(row.strategy_id, row));
-
-  const definitions = listStrategies();
-  const allowedStrategies = definitions.filter((definition) =>
-    definition.allowedPlans.some((planId) => allowedPlan(String(planId)))
-  );
-
   const results: StrategyStatus[] = [];
 
-  allowedStrategies.forEach((definition) => {
-    const row = allocationsMap.get(definition.id);
-    const strategyId = row.strategy_id;
-    const latestRun = latestRunByStrategy.get(strategyId) ?? null;
+  allocationsRes.rows.forEach((row) => {
+    const definition = registry.find((item) => item.id === row.strategy_id) ?? null;
+    const latestRun = latestRunByStrategy.get(row.strategy_id) ?? null;
     const status = mapStrategyStatus(latestRun?.status ?? null, row.enabled);
     const pnlPct = latestRun?.rate_limit_meta && typeof latestRun.rate_limit_meta === 'object'
       ? Number((latestRun.rate_limit_meta as any).pnlPct ?? 0)
       : 0;
-    const name = formatStrategyName(strategyId);
     const lastRunAt = latestRun?.ended_at ?? latestRun?.started_at ?? row.updated_at;
     results.push({
-      strategyId,
-      name,
+      strategyId: row.strategy_id,
+      name: definition ? definition.name : formatStrategyName(row.strategy_id),
       runMode: normalizeRunMode(row.run_mode),
       status,
       pnlPct: Number(pnlPct.toFixed(2)),
@@ -316,7 +317,7 @@ export async function fetchStrategies(pool: Pool, clientId: string): Promise<Str
 
   const existingIds = new Set(results.map((item) => item.strategyId));
 
-  allowedStrategies
+  allowedDefinitions
     .filter((definition) => !existingIds.has(definition.id))
     .forEach((definition) => {
       const latestRun = latestRunByStrategy.get(definition.id) ?? null;
