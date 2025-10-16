@@ -24,7 +24,7 @@ import {
   fetchStrategyDetail,
   fetchClientMetricsSnapshot,
 } from './dataService';
-import type { MarketWatchlist } from './dataService';
+import type { MarketWatchlist } from '../contracts/mobileApi';
 
 interface JsonBodyResult {
   raw: string;
@@ -537,7 +537,7 @@ async function handleMobileRequest(req: IncomingMessage, res: ServerResponse, co
           email: authResult.auth.email ?? null,
         },
       });
-      sendJson(res, 200, { status: 'kill_requested' });
+      sendJson(res, 200, { acknowledged: true, executedAt: null });
       return true;
     }
 

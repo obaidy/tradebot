@@ -1,3 +1,5 @@
+import type { ClientMetrics } from '../../../src/contracts/mobileApi';
+
 const ADMIN_API_URL = process.env.ADMIN_API_URL || 'http://localhost:9300';
 const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN;
 
@@ -33,7 +35,7 @@ export interface TradeApproval {
   metadata: Record<string, unknown> | null;
 }
 
-async function adminRequest(path: string, init: RequestInit & { actor?: string } = {}) {
+async function adminRequest<T = unknown>(path: string, init: RequestInit & { actor?: string } = {}): Promise<T> {
   const url = `${ADMIN_API_URL}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -68,9 +70,9 @@ async function adminRequest(path: string, init: RequestInit & { actor?: string }
     throw new AdminApiError(detail?.error || `Admin API request failed: ${res.status}` , res.status, detail);
   }
   if (res.status === 204) {
-    return null;
+    return null as T;
   }
-  return res.json();
+  return (await res.json()) as T;
 }
 
 export async function fetchPlans() {
@@ -348,8 +350,8 @@ export async function runClientStrategy(payload: {
   });
 }
 
-export async function fetchMetrics(clientId: string) {
-  return adminRequest(`/clients/${clientId}/metrics`);
+export async function fetchMetrics(clientId: string): Promise<ClientMetrics> {
+  return adminRequest<ClientMetrics>(`/clients/${clientId}/metrics`);
 }
 
 export async function fetchWorkers(clientId: string) {

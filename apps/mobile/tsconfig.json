@@ -52,7 +52,8 @@
     "app.config.ts",
     "metro.config.js",
     "babel.config.js",
-    "src/**/*"
+    "src/**/*",
+    "../../src/contracts/**/*.ts"
   ],
   "extends": "expo/tsconfig.base"
 }

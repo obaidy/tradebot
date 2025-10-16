@@ -4,111 +4,24 @@ import path from 'path';
 import { CONFIG } from '../config';
 import { listStrategies } from '../strategies';
 import type { StrategySummary } from '../strategies/registry';
-import type { StrategyRunMode } from '../strategies/types';
-
-export type StrategyState = 'running' | 'paused' | 'error';
-export type ActivityType = 'trade' | 'alert' | 'system';
-export type ActivitySeverity = 'info' | 'warn' | 'critical';
-
-export interface DashboardSummary {
-  portfolio: {
-    clientId: string;
-    totalPnlUsd: number;
-    dayChangePct: number;
-    bankRollUsd: number;
-    activeStrategies: number;
-    updatedAt: string;
-  };
-  strategies: StrategyStatus[];
-  risk: {
-    globalDrawdownUsd: number;
-    exposurePct: number;
-    guardState: 'nominal' | 'warning' | 'critical';
-  };
-  quickActions: {
-    killSwitchAvailable: boolean;
-    pauseAllAvailable: boolean;
-  };
-}
-
-export interface StrategyStatus {
-  strategyId: string;
-  name: string;
-  runMode: 'live' | 'paper';
-  status: StrategyState;
-  pnlPct: number;
-  lastRunAt: string;
-  hasAllocation?: boolean;
-}
-
-export interface StrategyRunSummary {
-  runId: string;
-  status: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  pnlPct?: number;
-  notes?: string;
-}
-
-export interface StrategyDetail {
-  strategy: StrategyStatus;
-  allocationPct: number | null;
-  allocationRunMode: 'live' | 'paper';
-  recentRuns: StrategyRunSummary[];
-  lastConfig?: Record<string, unknown> | null;
-}
-
-export interface ActivityEntry {
-  id: string;
-  type: ActivityType;
-  severity?: ActivitySeverity;
-  title: string;
-  description: string;
-  asset?: string;
-  pnlUsd?: number;
-  createdAt: string;
-}
-
-export interface ActivityFeed {
-  entries: ActivityEntry[];
-  nextCursor?: string;
-}
-
-export interface MarketSnapshot {
-  symbol: string;
-  price: number;
-  change24hPct: number;
-  volumeUsd24h: number;
-  spreadBps?: number;
-  high24h?: number;
-  low24h?: number;
-  updatedAt: string;
-  sparkline?: number[];
-}
-
-export interface MarketWatchlist {
-  id: string;
-  name: string;
-  symbols: string[];
-  updatedAt: string;
-}
-
-export interface ClientMetrics {
-  clientId: string;
-  pnl: {
-    global: number;
-    run: number;
-    history: number[];
-  };
-  inventory: {
-    base: number;
-    cost: number;
-  };
-  lastTickerTs: number | null;
-}
+import type {
+  ActivityEntry,
+  ActivityFeedResponse,
+  ActivitySeverity,
+  ActivityType,
+  ClientMetrics,
+  DashboardSummaryResponse,
+  MarketSnapshot,
+  MarketWatchlist,
+  StrategyDetail,
+  StrategyRunMode,
+  StrategyRunSummary,
+  StrategyStatus,
+  StrategyStatusState,
+} from '../contracts/mobileApi';
 
 interface SampleDataShape {
-  dashboard: DashboardSummary;
+  dashboard: DashboardSummaryResponse;
   activity: ActivityEntry[];
   markets?: {
     snapshots?: MarketSnapshot[];
@@ -182,7 +95,10 @@ interface StrategyRunRow {
   rate_limit_meta: Record<string, unknown> | null;
 }
 
-export async function fetchDashboardSummary(pool: Pool, clientId: string): Promise<DashboardSummary> {
+export async function fetchDashboardSummary(
+  pool: Pool,
+  clientId: string
+): Promise<DashboardSummaryResponse> {
   const sampleDataPromise = loadSampleData();
   const clientPromise = pool.query(
     `SELECT id, plan, is_paused, kill_requested FROM clients WHERE id = $1`,
@@ -358,7 +274,7 @@ export async function fetchActivityFeed(
   pool: Pool,
   clientId: string,
   options: { limit?: number; cursor?: string }
-): Promise<ActivityFeed> {
+): Promise<ActivityFeedResponse> {
   const sampleDataPromise = loadSampleData();
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
   const cursorDate = options.cursor ? new Date(options.cursor) : null;
@@ -596,7 +512,7 @@ function mapAuditToActivity(row: AuditRow): ActivityEntry {
   };
 }
 
-function mapStrategyStatus(status: string | null, enabled: boolean): StrategyState {
+function mapStrategyStatus(status: string | null, enabled: boolean): StrategyStatusState {
   const normalized = (status ?? '').toLowerCase();
   if (!enabled) return 'paused';
   if (['failed', 'error', 'halted'].includes(normalized)) {
@@ -608,7 +524,7 @@ function mapStrategyStatus(status: string | null, enabled: boolean): StrategySta
   return enabled ? 'running' : 'paused';
 }
 
-function normalizeRunMode(runMode: string | null): 'live' | 'paper' {
+function normalizeRunMode(runMode: string | null): StrategyRunMode {
   const normalized = (runMode ?? '').toLowerCase();
   if (normalized === 'live') return 'live';
   return 'paper';
