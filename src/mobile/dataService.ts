@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { CONFIG } from '../config';
 import { listStrategies } from '../strategies';
-import type { StrategyDefinition } from '../strategies/registry';
+import type { StrategySummary } from '../strategies/registry';
 import type { StrategyRunMode } from '../strategies/types';
 
 export type StrategyState = 'running' | 'paused' | 'error';
@@ -118,7 +118,7 @@ interface SampleDataShape {
 
 let cachedSampleData: SampleDataShape | null = null;
 
-function filterStrategiesByPlan(planId: string, registry: StrategyDefinition[]): StrategyDefinition[] {
+function filterStrategiesByPlan(planId: string, registry: StrategySummary[]): StrategySummary[] {
   const normalized = planId.toLowerCase();
   return registry.filter((definition) =>
     definition.allowedPlans.some((allowed) => String(allowed).toLowerCase() === normalized)
