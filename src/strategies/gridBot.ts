@@ -269,6 +269,25 @@ export type GridPlan = {
     portfolioWeightPct?: number | null;
     intelligence?: IntelligenceSummary | null;
     risk?: RiskEvaluationResult | null;
+    volatilityTuning?: {
+      volatility: number;
+      gridMultiplier: number;
+      takeProfitMultiplier: number;
+      comfortVol: number;
+      stressVol: number;
+    } | null;
+    perTradeAdjustment?: {
+      from: number;
+      to: number;
+      amount: number;
+      reason?: string | null;
+    } | null;
+    skippedLevels?: { index: number; price: number; amount: number }[] | null;
+    redistribution?: {
+      targetExposureUsd: number;
+      redistributedUsd: number;
+      achievedExposureUsd: number;
+    } | null;
   };
   plannedExposureUsd: number;
 };
@@ -322,6 +341,10 @@ function errorMessage(err: unknown) {
   return typeof err === 'string' ? err : JSON.stringify(err);
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function createTimestampProvider(isPaperMode: boolean) {
   if (!isPaperMode) {
     return () => new Date().toISOString();
@@ -337,6 +360,121 @@ function createTimestampProvider(isPaperMode: boolean) {
     const timestamp = new Date(baseMs + counter * 1000).toISOString();
     counter += 1;
     return timestamp;
+  };
+}
+
+type VolatilityTuningResult = {
+  gridSizePct: number;
+  takeProfitPct: number;
+  applied: boolean;
+  meta: {
+    volatility: number;
+    gridMultiplier: number;
+    takeProfitMultiplier: number;
+    comfortVol: number;
+    stressVol: number;
+  } | null;
+};
+
+function applyVolatilityTuning(params: {
+  gridSizePct: number;
+  takeProfitPct: number;
+  volatility?: number | null;
+  comfortVol?: number;
+  stressVol?: number;
+}): VolatilityTuningResult {
+  const { volatility } = params;
+  if (volatility === undefined || volatility === null || !Number.isFinite(volatility)) {
+    return {
+      gridSizePct: params.gridSizePct,
+      takeProfitPct: params.takeProfitPct,
+      applied: false,
+      meta: null,
+    };
+  }
+  const comfortVol = clamp(params.comfortVol ?? Number(process.env.GRID_VOLATILITY_COMFORT || 0.02), 0.005, 0.25);
+  const stressVol = clamp(
+    params.stressVol ?? Number(process.env.GRID_VOLATILITY_STRESS || 0.045),
+    comfortVol + 0.001,
+    0.5
+  );
+
+  let gridMultiplier = 1;
+  if (volatility < comfortVol) {
+    const diff = comfortVol - volatility;
+    const sensitivity = Number(process.env.GRID_VOLATILITY_TIGHTEN_SENSITIVITY || 0.35);
+    gridMultiplier = clamp(1 - diff / comfortVol * sensitivity, 0.6, 1);
+  } else if (volatility > stressVol) {
+    const diff = volatility - stressVol;
+    const sensitivity = Number(process.env.GRID_VOLATILITY_WIDEN_SENSITIVITY || 0.55);
+    gridMultiplier = clamp(1 + diff / stressVol * sensitivity, 1, 1.9);
+  }
+
+  const takeProfitMultiplier =
+    gridMultiplier >= 1
+      ? clamp(1 + (gridMultiplier - 1) * 0.85, 1, 1.75)
+      : clamp(1 - (1 - gridMultiplier) * 0.65, 0.55, 1);
+
+  return {
+    gridSizePct: params.gridSizePct * gridMultiplier,
+    takeProfitPct: params.takeProfitPct * takeProfitMultiplier,
+    applied: gridMultiplier !== 1 || takeProfitMultiplier !== 1,
+    meta: {
+      volatility,
+      gridMultiplier,
+      takeProfitMultiplier,
+      comfortVol,
+      stressVol,
+    },
+  };
+}
+
+function redistributeExposureAcrossLevels(
+  levels: GridBuyLevel[],
+  targetExposureUsd: number,
+  opts: { stepSize: number; basePrecision: number; minNotional: number | null }
+): { levels: GridBuyLevel[]; redistributedUsd: number } {
+  if (!levels.length || targetExposureUsd <= 0) {
+    return { levels, redistributedUsd: 0 };
+  }
+
+  const currentExposure = levels.reduce((sum, lvl) => sum + (lvl.perTradeUsd ?? 0), 0);
+  const deficit = targetExposureUsd - currentExposure;
+  const minRedistribution = Math.max(5, targetExposureUsd * 0.015);
+  if (deficit <= minRedistribution) {
+    return { levels, redistributedUsd: 0 };
+  }
+
+  const perLevelTopUp = deficit / levels.length;
+  const redistributed: GridBuyLevel[] = levels.map((level) => {
+    const desiredUsd = clamp(
+      level.perTradeUsd + perLevelTopUp,
+      level.perTradeUsd,
+      targetExposureUsd / levels.length * 1.6
+    );
+    const adjusted = adjustPerTradeToExchange(
+      desiredUsd,
+      level.price,
+      opts.stepSize,
+      opts.basePrecision,
+      opts.minNotional
+    );
+    const reasonParts: string[] = [];
+    if (level.adjustReason) reasonParts.push(level.adjustReason);
+    if (adjusted.adjusted) reasonParts.push('topup');
+    return {
+      ...level,
+      perTradeUsd: adjusted.perTradeUsd,
+      amount: adjusted.amount,
+      adjusted: level.adjusted || adjusted.adjusted,
+      adjustReason: reasonParts.length ? reasonParts.join('; ') : undefined,
+    };
+  });
+
+  const finalExposure = redistributed.reduce((sum, lvl) => sum + (lvl.perTradeUsd ?? 0), 0);
+  return {
+    levels: redistributed,
+    redistributedUsd: finalExposure - currentExposure,
   };
 }
 
@@ -1592,7 +1730,8 @@ export function summarizePlanned(
   pair: string,
   buyLevels: { price: number; amount: number }[],
   perTradeUsd: number,
-  exFeePct: number | undefined
+  exFeePct: number | undefined,
+  takeProfitPctOverride?: number
 ) {
   const feePct = typeof exFeePct === 'number' && isFinite(exFeePct) ? exFeePct : FALLBACK_FEE_PCT;
 
@@ -1601,7 +1740,11 @@ export function summarizePlanned(
   const entryUsd = buyLevels.reduce((s, b) => s + b.price * b.amount, 0);
   // estimate TP price per buy using provided TAKE_PROFIT_PCT if present, otherwise use a safe default (2%)
   const defaultTpPct = Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02;
-  const estTpUsd = buyLevels.reduce((s, b) => s + b.amount * b.price * (1 + defaultTpPct), 0);
+  const tpPct =
+    typeof takeProfitPctOverride === 'number' && Number.isFinite(takeProfitPctOverride)
+      ? takeProfitPctOverride
+      : defaultTpPct;
+  const estTpUsd = buyLevels.reduce((s, b) => s + b.amount * b.price * (1 + tpPct), 0);
 
   const totalFees = (entryUsd + estTpUsd) * feePct; // buy fee + sell fee approx
   const estNetProfit = estTpUsd - entryUsd - totalFees;
@@ -1803,6 +1946,9 @@ export async function runGridOnce(
   let takeProfitOverride: number | null = null;
   let performanceMetrics: RecentPerformanceMetrics | null = null;
   let riskSummary: RiskEvaluationResult | null = null;
+  const defaultTakeProfitPct = Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02;
+  let volatilityTuningMeta: VolatilityTuningResult['meta'] | null = null;
+  let compositeVolatility: number | null = null;
   let inventorySnapshotTimer: NodeJS.Timeout | null = null;
   let recordInventorySnapshot: ((event: string) => Promise<void>) | null = null;
   let riskEngine: RiskEngine | null = null;
@@ -2111,7 +2257,7 @@ export async function runGridOnce(
         baseParameters: {
           gridSteps: adjustedGridSteps,
           gridSizePct: adjustedGridSizePct,
-          takeProfitPct: Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02,
+          takeProfitPct: defaultTakeProfitPct,
           perTradeUsd: perTradeUsdOrig,
         },
         windowResults: performanceMetrics?.pnlSeries ?? undefined,
@@ -2159,8 +2305,7 @@ export async function runGridOnce(
       intelligenceRiskBiasGauge.labels(clientId, pair).set(0);
       intelligenceVolatilityGauge.labels(clientId, pair).set(0);
       intelligencePerTradeGauge.labels(clientId, pair).set(perTradeUsdOrig);
-      const tpCandidate = Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02;
-      intelligenceTakeProfitGauge.labels(clientId, pair).set(tpCandidate);
+      intelligenceTakeProfitGauge.labels(clientId, pair).set(defaultTakeProfitPct);
     }
 
     const exposures = await inventoryRepo.getLatestSnapshots();
@@ -2174,7 +2319,7 @@ export async function runGridOnce(
       plannedExposureUsd: plannedExposureEstimate,
       perTradeUsd: perTradeUsdOrig,
       gridSizePct: adjustedGridSizePct,
-      takeProfitPct: takeProfitOverride ?? (Number(process.env.TP) || Number(process.env.TAKE_PROFIT_PCT) || 0.02),
+      takeProfitPct: takeProfitOverride ?? defaultTakeProfitPct,
       recentPerformance: performanceMetrics,
       exposures,
       volatility: regimeAnalysis?.metrics?.volatility ?? null,
@@ -2216,6 +2361,50 @@ export async function runGridOnce(
       stressLossUsd: riskDecision.maxStressLossUsd,
       messages: riskDecision.messages,
     });
+
+    compositeVolatility =
+      intelligenceSummary?.regime.garchVolatility ??
+      regimeAnalysis?.metrics?.volatility ??
+      null;
+
+    const baseTakeProfitForTuning = takeProfitOverride ?? defaultTakeProfitPct;
+    const volatilityTuning = applyVolatilityTuning({
+      gridSizePct: adjustedGridSizePct,
+      takeProfitPct: baseTakeProfitForTuning,
+      volatility: compositeVolatility,
+    });
+    volatilityTuningMeta = volatilityTuning.meta;
+    adjustedGridSizePct = volatilityTuning.gridSizePct;
+    takeProfitOverride = volatilityTuning.takeProfitPct;
+    if (volatilityTuning.applied && volatilityTuningMeta) {
+      logger.info('volatility_tuning_applied', {
+        event: 'volatility_tuning_applied',
+        pair,
+        volatility: volatilityTuningMeta.volatility,
+        gridMultiplier: volatilityTuningMeta.gridMultiplier,
+        takeProfitMultiplier: volatilityTuningMeta.takeProfitMultiplier,
+        gridSizePct: adjustedGridSizePct,
+        takeProfitPct: takeProfitOverride,
+        comfortVol: volatilityTuningMeta.comfortVol,
+        stressVol: volatilityTuningMeta.stressVol,
+      });
+    }
+
+    const volatilityHaltThreshold = Number(process.env.GRID_VOLATILITY_HALT || '0');
+    if (
+      volatilityHaltThreshold > 0 &&
+      compositeVolatility !== null &&
+      compositeVolatility > volatilityHaltThreshold
+    ) {
+      logger.warn('volatility_halt_triggered', {
+        event: 'volatility_halt_triggered',
+        pair,
+        volatility: compositeVolatility,
+        haltThreshold: volatilityHaltThreshold,
+        clientId,
+      });
+      throw new Error(`volatility ${compositeVolatility.toFixed(4)} above halt threshold ${volatilityHaltThreshold}`);
+    }
   } catch (err) {
     logger.warn('regime_analysis_failed', {
       event: 'regime_analysis_failed',
@@ -2253,8 +2442,13 @@ export async function runGridOnce(
     : null;
   const perTradeUsd = adjusted.perTradeUsd;
 
-  const buyLevels: GridBuyLevel[] = [];
+  let buyLevels: GridBuyLevel[] = [];
   const skippedLevels: { index: number; price: number; amount: number }[] = [];
+  let redistributionMeta: {
+    targetExposureUsd: number;
+    redistributedUsd: number;
+    achievedExposureUsd: number;
+  } | null = null;
   for (let i = 1; i <= gridSteps; i++) {
     const price = mid * (1 - i * gridSizePct);
     const adj = adjustPerTradeToExchange(perTradeUsd, price, stepSize, basePrecision, minNotional);
@@ -2271,7 +2465,58 @@ export async function runGridOnce(
     });
   }
 
-  const summary = summarizePlanned(pair, buyLevels, perTradeUsd, exchangeFeePct);
+  if (perTradeAdjustmentLog) {
+    logger.debug('per_trade_adjusted_for_exchange', {
+      event: 'per_trade_adjusted_for_exchange',
+      pair,
+      fromUsd: perTradeAdjustmentLog.from,
+      toUsd: perTradeAdjustmentLog.to,
+      reason: perTradeAdjustmentLog.reason,
+    });
+  }
+
+  if (skippedLevels.length) {
+    logger.debug('grid_levels_skipped', {
+      event: 'grid_levels_skipped',
+      pair,
+      skipped: skippedLevels,
+      stepSize,
+      minNotional,
+    });
+  }
+
+  const targetExposureUsd = gridSteps * perTradeUsd;
+  if (buyLevels.length) {
+    const redistribution = redistributeExposureAcrossLevels(buyLevels, targetExposureUsd, {
+      stepSize,
+      basePrecision,
+      minNotional: minNotional ?? null,
+    });
+    if (Math.abs(redistribution.redistributedUsd) > 0.25) {
+      const finalExposureUsd = redistribution.levels.reduce((sum, lvl) => sum + lvl.perTradeUsd, 0);
+      redistributionMeta = {
+        targetExposureUsd,
+        redistributedUsd: redistribution.redistributedUsd,
+        achievedExposureUsd: finalExposureUsd,
+      };
+      buyLevels = redistribution.levels;
+      logger.info('grid_exposure_redistributed', {
+        event: 'grid_exposure_redistributed',
+        pair,
+        targetExposureUsd,
+        redistributedUsd: redistribution.redistributedUsd,
+        achievedExposureUsd: finalExposureUsd,
+      });
+    }
+  }
+
+  const summary = summarizePlanned(
+    pair,
+    buyLevels,
+    perTradeUsd,
+    exchangeFeePct,
+    takeProfitOverride ?? defaultTakeProfitPct
+  );
   const feePctToUse = exchangeFeePct ?? FALLBACK_FEE_PCT;
   const runId = generateRunId({
     explicit: process.env.RUN_ID,
@@ -2317,6 +2562,17 @@ export async function runGridOnce(
       portfolioWeightPct: portfolioWeightPctOverride,
       intelligence: intelligenceSummary,
       risk: riskSummary,
+      volatilityTuning: volatilityTuningMeta ?? null,
+      perTradeAdjustment: perTradeAdjustmentLog
+        ? {
+            from: perTradeAdjustmentLog.from,
+            to: perTradeAdjustmentLog.to,
+            amount: perTradeAdjustmentLog.amount,
+            reason: perTradeAdjustmentLog.reason ?? null,
+          }
+        : null,
+      skippedLevels: skippedLevels.length ? skippedLevels : null,
+      redistribution: redistributionMeta,
     },
     plannedExposureUsd,
   };

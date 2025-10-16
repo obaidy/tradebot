@@ -65,6 +65,11 @@ Key environment variables and defaults are captured in `src/config.ts`. Frequent
 | `EXCHANGE_RETRY_ATTEMPTS` | `5` | Retry attempts for CCXT order/ticker calls before surfacing an error. |
 | `EXCHANGE_RETRY_DELAY_MS` | `500` | Initial delay (ms) between retries; exponential backoff is applied. |
 | `EXCHANGE_RETRY_BACKOFF` | `2` | Multiplier applied to retry delays (e.g., 500 → 1000 → 2000 ms). |
+| `GRID_VOLATILITY_COMFORT` | `0.02` | Volatility (σ) where the grid starts tightening; lower values tighten more aggressively. |
+| `GRID_VOLATILITY_STRESS` | `0.045` | Volatility threshold where the grid begins widening and take-profit expands. |
+| `GRID_VOLATILITY_TIGHTEN_SENSITIVITY` | `0.35` | Scalar applied when σ is below comfort; higher values tighten the ladder faster. |
+| `GRID_VOLATILITY_WIDEN_SENSITIVITY` | `0.55` | Scalar applied when σ is above stress; higher values widen the ladder faster. |
+| `GRID_VOLATILITY_HALT` | `0` | Optional σ ceiling; set to a positive value to abort runs when realised volatility exceeds this level. |
 
 All new logs are structured JSON (`timestamp`, `level`, `msg`, plus `runId`, `pair`, etc.) so you can stream them directly into log aggregation or alerting systems.
 
