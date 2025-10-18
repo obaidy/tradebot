@@ -68,6 +68,12 @@ services:
         value: "true"
       - key: NODE_ENV
         value: production
+      - key: PAPER_MODE
+        value: "true"
+      - key: SUMMARY_ONLY
+        value: "false"
+      - key: CLIENT_ID
+        value: default
   - type: worker
     name: tradebot-paper-worker
     env: node
