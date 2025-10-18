@@ -81,7 +81,7 @@ services:
     region: oregon
     autoDeploy: true
     buildCommand: npm install && npm run build
-    startCommand: node dist/jobs/paperRunWorker.js
+    startCommand: PAPER_MODE=true SUMMARY_ONLY=false CLIENT_ID=default node dist/jobs/paperRunWorker.js
     envVars:
       - key: NODE_VERSION
         value: 22.16.0

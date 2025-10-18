@@ -2102,20 +2102,52 @@ export async function runGridOnce(
       fallback: () => ex.fetchTicker(pair),
     }) as Promise<ExchangeTickerWithMeta>;
 
-  const ticker = await retry<ExchangeTickerWithMeta>(realtimeTickerFetcher, {
-    attempts: EXCHANGE_RETRY_ATTEMPTS,
-    delayMs: EXCHANGE_RETRY_DELAY_MS,
-    backoffFactor: EXCHANGE_RETRY_BACKOFF,
-    onRetry: (error, attempt) => {
-      circuitBreaker.recordApiError('fetch_ticker');
-      logger.warn('fetch_ticker_retry', {
-        event: 'fetch_ticker_retry',
+  let ticker: ExchangeTickerWithMeta;
+  const fallbackTicker = () => {
+    const fallbackMid = Number(process.env.PAPER_FALLBACK_PRICE || '30000') || 30000;
+    const syntheticTime = Date.now();
+    return {
+      bid: fallbackMid,
+      ask: fallbackMid,
+      last: fallbackMid,
+      timestamp: syntheticTime,
+      source: 'stub',
+      latencyMs: null,
+    } as ExchangeTickerWithMeta;
+  };
+  try {
+    ticker = await retry<ExchangeTickerWithMeta>(realtimeTickerFetcher, {
+      attempts: EXCHANGE_RETRY_ATTEMPTS,
+      delayMs: EXCHANGE_RETRY_DELAY_MS,
+      backoffFactor: EXCHANGE_RETRY_BACKOFF,
+      onRetry: (error, attempt) => {
+        circuitBreaker.recordApiError('fetch_ticker');
+        logger.warn('fetch_ticker_retry', {
+          event: 'fetch_ticker_retry',
+          pair,
+          attempt,
+          error: errorMessage(error),
+        });
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const restricted =
+      message.includes('451') ||
+      message.toLowerCase().includes('restricted location') ||
+      message.toLowerCase().includes('service unavailable from a restricted location');
+    if (CONFIG.PAPER_MODE && restricted) {
+      ticker = fallbackTicker();
+      logger.warn('paper_ticker_stubbed', {
+        event: 'paper_ticker_stubbed',
         pair,
-        attempt,
-        error: errorMessage(error),
+        reason: 'restricted_location',
+        fallbackPrice: ticker.last,
       });
-    },
-  });
+    } else {
+      throw err;
+    }
+  }
   const fallbackPrice = typeof ticker.last === 'number' ? ticker.last : 0;
   const bidPrice = typeof ticker.bid === 'number' ? ticker.bid : fallbackPrice;
   const askPrice = typeof ticker.ask === 'number' ? ticker.ask : (fallbackPrice || bidPrice);
