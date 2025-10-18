@@ -64,3 +64,28 @@ services:
         value: "true"
       - key: NODE_ENV
         value: production
+  - type: worker
+    name: tradebot-paper-worker
+    env: node
+    plan: starter
+    region: oregon
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm run paper:worker
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: NODE_ENV
+        value: production
+      - key: PG_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: AUTH0_ISSUER_BASE_URL
+        sync: false
+      - key: AUTH0_CLIENT_ID
+        sync: false
+      - key: AUTH0_CLIENT_SECRET
+        sync: false
+      - key: CLIENT_MASTER_KEY
+        sync: false
