@@ -1,6 +1,8 @@
 import { webcrypto } from "crypto";
 import { vi } from "vitest";
 
+process.env.DEFAULT_EXCHANGE = 'binance';
+
 declare global {
   // eslint-disable-next-line no-var
   var crypto: Crypto;

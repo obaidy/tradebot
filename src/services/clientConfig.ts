@@ -266,7 +266,8 @@ export class ClientConfigService {
     const exchangeId = resolveExchangeId(limits, this.defaultExchange);
     const guard = deriveGuardLimits(limits.guard);
     const operations = deriveOperationalLimits(limits, risk);
-    if (operations.allowedExchanges && operations.allowedExchanges.length > 0) {
+    const enforceExchangeLimit = !CONFIG.PAPER_MODE;
+    if (enforceExchangeLimit && operations.allowedExchanges && operations.allowedExchanges.length > 0) {
       if (!operations.allowedExchanges.includes(exchangeId)) {
         throw new Error(`Exchange ${exchangeId} is not permitted for client ${clientId}`);
       }
