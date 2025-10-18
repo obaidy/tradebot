@@ -2103,7 +2103,7 @@ export async function runGridOnce(
     }) as Promise<ExchangeTickerWithMeta>;
 
   let ticker: ExchangeTickerWithMeta;
-  const fallbackTicker = () => {
+  const fallbackTicker = (): ExchangeTickerWithMeta => {
     const fallbackMid = Number(process.env.PAPER_FALLBACK_PRICE || '30000') || 30000;
     const syntheticTime = Date.now();
     return {
@@ -2111,9 +2111,9 @@ export async function runGridOnce(
       ask: fallbackMid,
       last: fallbackMid,
       timestamp: syntheticTime,
-      source: 'stub',
+      source: 'rest',
       latencyMs: null,
-    } as ExchangeTickerWithMeta;
+    };
   };
   try {
     ticker = await retry<ExchangeTickerWithMeta>(realtimeTickerFetcher, {
