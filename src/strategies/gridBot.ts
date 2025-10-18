@@ -2112,7 +2112,7 @@ export async function runGridOnce(
       last: fallbackMid,
       timestamp: syntheticTime,
       source: 'rest',
-      latencyMs: null,
+      latencyMs: undefined,
     };
   };
   try {
