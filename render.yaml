@@ -12,7 +12,7 @@ services:
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
       - key: DEFAULT_EXCHANGE
-        value: coinbase
+        value: kucoin
       - key: NEXTAUTH_SECRET
         sync: false
       - key: NEXTAUTH_URL
@@ -45,7 +45,7 @@ services:
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
       - key: DEFAULT_EXCHANGE
-        value: coinbase
+        value: kucoin
       - key: ADMIN_API_URL
         sync: false
       - key: ADMIN_API_TOKEN
@@ -92,7 +92,7 @@ services:
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
       - key: DEFAULT_EXCHANGE
-        value: coinbase
+        value: kucoin
       - key: NODE_ENV
         value: production
       - key: PG_URL
