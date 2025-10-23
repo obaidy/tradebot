@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../../lib/authOptions';
 import { cancelSubscriptionForClient } from '../../../../lib/adminClient';
+import { getSessionClientId } from '../../../../lib/sessionClient';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -10,7 +11,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.id) {
+  const clientId = getSessionClientId(session);
+  if (!clientId) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
@@ -19,9 +21,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const body = typeof req.body === 'string' && req.body.length
       ? JSON.parse(req.body)
       : req.body ?? {};
-    const actor = session.user.email ?? session.user.id;
+    const actor = session.user?.email ?? clientId;
     const result = await cancelSubscriptionForClient({
-      clientId: session.user.id,
+      clientId,
       actor,
       cancelAtPeriodEnd: Boolean(body.cancelAtPeriodEnd ?? body.cancel_at_period_end ?? false),
     });

@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/authOptions';
 import { uploadCsvExport } from '../../../lib/exporter';
+import { getSessionClientId } from '../../../lib/sessionClient';
 
 function toCsv(headers: string[], rows: Array<Array<string | number | null>>): string {
   const escape = (value: string | number | null) => {
@@ -22,7 +23,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
   const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.id) {
+  const clientId = getSessionClientId(session);
+  if (!clientId) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
@@ -38,7 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     const csv = toCsv(payload.headers, payload.rows);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const key = `${session.user.id}/${payload.dataset}-${timestamp}.csv`;
+    const key = `${clientId}/${payload.dataset}-${timestamp}.csv`;
     const upload = await uploadCsvExport(key, csv);
     if (upload.url) {
       res.status(200).json({ url: upload.url, location: upload.location });

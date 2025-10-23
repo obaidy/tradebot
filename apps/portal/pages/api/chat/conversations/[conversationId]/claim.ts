@@ -2,10 +2,12 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authOptions';
 import { claimChatConversation } from '@/lib/adminClient';
+import { getSessionClientId } from '@/lib/sessionClient';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.id) {
+  const clientId = getSessionClientId(session);
+  if (!clientId) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
@@ -21,8 +23,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   await claimChatConversation({
     conversationId,
-    agentId: session.user.id,
-    agentName: session.user.name ?? session.user.email ?? session.user.id,
+    agentId: clientId,
+    agentName: session.user?.name ?? session.user?.email ?? clientId,
   });
   res.status(200).json({ ok: true });
 }

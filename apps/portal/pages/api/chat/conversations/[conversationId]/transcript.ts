@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authOptions';
+import { getSessionClientId } from '@/lib/sessionClient';
 
 const adminUrl = process.env.ADMIN_API_URL;
 const adminToken = process.env.ADMIN_API_TOKEN;
@@ -13,7 +14,8 @@ export const config = {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.id) {
+  const clientId = getSessionClientId(session);
+  if (!clientId) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
@@ -40,7 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       method: 'GET',
       headers: {
         Authorization: `Bearer ${adminToken}`,
-        'x-actor': session.user.email ?? session.user.id ?? 'portal-client',
+        'x-actor': session.user?.email ?? clientId ?? 'portal-client',
       },
     },
     (upstreamRes: any) => {

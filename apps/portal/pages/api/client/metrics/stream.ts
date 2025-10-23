@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authOptions';
 import { fetchMetrics } from '@/lib/adminClient';
+import { getSessionClientId } from '@/lib/sessionClient';
 
 export const config = {
   api: {
@@ -15,11 +16,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
   const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.id) {
+  const clientId = getSessionClientId(session);
+  if (!clientId) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
-  const clientId = session.user.id as string;
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',

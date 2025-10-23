@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authOptions';
 import { createBillingSessionForClient } from '@/lib/adminClient';
+import { getSessionClientId } from '@/lib/sessionClient';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -9,7 +10,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
   const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.id) {
+  const clientId = getSessionClientId(session);
+  if (!clientId) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
@@ -24,9 +26,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const successUrl = `${origin}/app?checkout=success&session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${origin}/app?checkout=cancelled&session_id={CHECKOUT_SESSION_ID}`;
     const checkout = await createBillingSessionForClient({
-      clientId: session.user.id,
+      clientId,
       planId,
-      actor: session.user.email ?? session.user.id,
+      actor: session.user?.email ?? clientId,
       successUrl,
       cancelUrl,
       trialDays: 3,

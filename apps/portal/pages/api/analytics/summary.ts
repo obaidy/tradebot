@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/authOptions';
+import { getSessionClientId } from '../../../lib/sessionClient';
 
 type PerformanceSummary = {
   runCount: number;
@@ -51,7 +52,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.id) {
+  const clientId = getSessionClientId(session);
+  if (!clientId) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
@@ -67,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           'Content-Type': 'application/json',
           Authorization: `Bearer ${adminToken}`,
         },
-        body: JSON.stringify({ clientId: session.user.id, lookbackDays }),
+        body: JSON.stringify({ clientId, lookbackDays }),
       });
 
       if (response.ok) {

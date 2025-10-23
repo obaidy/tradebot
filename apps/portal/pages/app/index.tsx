@@ -390,7 +390,7 @@ export default function Dashboard() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
-  const clientId = session?.user?.id;
+  const clientId = session?.user?.email ?? session?.user?.id ?? null;
   const actor = useMemo(() => session?.user?.email ?? clientId ?? 'unknown', [session?.user?.email, clientId]);
 
   const currentPlan = useMemo(

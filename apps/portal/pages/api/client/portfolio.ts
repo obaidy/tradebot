@@ -2,15 +2,15 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/authOptions';
 import { fetchClientPortfolio, updateClientPortfolio } from '../../../lib/adminClient';
+import { getSessionClientId } from '../../../lib/sessionClient';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.id) {
+  const clientId = getSessionClientId(session);
+  if (!clientId) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
-
-  const clientId = session.user.id;
 
   if (req.method === 'GET') {
     try {
@@ -29,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         res.status(400).json({ error: 'allocations_array_required' });
         return;
       }
-      const actor = session.user.email ?? clientId;
+      const actor = session.user?.email ?? clientId;
       const updated = await updateClientPortfolio(clientId, { allocations: body.allocations }, actor);
       res.status(200).json(updated);
     } catch (err) {
