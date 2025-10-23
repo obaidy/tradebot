@@ -359,7 +359,7 @@ export default function Dashboard() {
     isPaused: false,
     killRequested: false,
   });
-  const [apiForm, setApiForm] = useState({ exchangeName: 'binance', apiKey: '', apiSecret: '', passphrase: '' });
+  const [apiForm, setApiForm] = useState({ exchangeName: 'kucoin', apiKey: '', apiSecret: '', passphrase: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -2103,6 +2103,7 @@ export default function Dashboard() {
                     }}
                   >
                     <option value="binance">Binance</option>
+                    <option value="kucoin">KuCoin</option>
                     <option value="coinbase">Coinbase Advanced</option>
                     <option value="bybit">Bybit</option>
                     <option value="okx">OKX</option>

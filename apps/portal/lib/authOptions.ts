@@ -1,4 +1,5 @@
 import { NextAuthOptions } from 'next-auth';
+import type { JWT } from 'next-auth/jwt';
 import Auth0Provider from 'next-auth/providers/auth0';
 
 const auth0Domain = process.env.AUTH0_ISSUER_BASE_URL;
@@ -27,9 +28,17 @@ export const authOptions: NextAuthOptions = {
     strategy: 'jwt',
   },
   callbacks: {
+    async jwt({ token, user }) {
+      if (user?.email) {
+        (token as JWT & { email?: string }).email = user.email;
+      }
+      return token;
+    },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.sub ?? session.user.email ?? '';
+        const typedToken = token as JWT & { email?: string };
+        const email = typedToken.email ?? session.user.email ?? null;
+        session.user.id = email ?? token.sub ?? session.user.email ?? '';
       }
       return session;
     },
