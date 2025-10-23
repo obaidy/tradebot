@@ -184,9 +184,9 @@ export class BinanceStreamingGateway {
     }
 
     this.ws.on('open', () => this.handleOpen());
-    this.ws.on('message', (data) => this.handleMessage(data));
-    this.ws.on('error', (error) => this.handleError(error));
-    this.ws.on('close', (code) => this.handleClose(code));
+    this.ws.on('message', (data: RawData) => this.handleMessage(data));
+    this.ws.on('error', (error: Error) => this.handleError(error));
+    this.ws.on('close', (code: number) => this.handleClose(code));
   }
 
   private handleOpen() {
