@@ -9,6 +9,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22.16.0
+      - key: ADMIN_API_URL
+        value: https://tradebot-api-q9m0.onrender.com
+      - key: ADMIN_API_TOKEN
+        sync: false
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
       - key: DEFAULT_EXCHANGE

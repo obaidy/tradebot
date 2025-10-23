@@ -1060,6 +1060,7 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
           const runSeries = runs.rows.map((row) => {
             const params = (row.params_json ?? {}) as Record<string, any>;
             const summary = params.summary ?? params.plan?.summary ?? null;
+            const exchange = typeof row.exchange === 'string' ? row.exchange : params.exchange ?? null;
             const estNetProfitRaw =
               summary?.estNetProfit ?? summary?.raw?.estNetProfit ?? params.summary?.raw?.estNetProfit ?? null;
             return {
@@ -1070,6 +1071,7 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
               runMode: params.runMode ?? params.run_mode ?? params.metadata?.runMode ?? 'unknown',
               estNetProfit: estNetProfitRaw !== null ? Number(estNetProfitRaw) : null,
               perTradeUsd: params.perTradeUsd ?? params.summary?.perTradeUsd ?? null,
+              exchange,
             };
           });
           const guardState = guard.rows[0]
