@@ -31,7 +31,8 @@
     "postinstall": "patch-package",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "db:fix-client": "ts-node scripts/fixClientId.ts"
+    "db:fix-client": "ts-node scripts/fixClientId.ts",
+    "report:telemetry": "ts-node scripts/reportTelemetry.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.893.0",
