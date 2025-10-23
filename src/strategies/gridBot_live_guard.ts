@@ -7,6 +7,7 @@ import { runMigrations } from "../db/migrations";
 import { CONFIG } from "../config";
 import { ClientConfigService } from "../services/clientConfig";
 import { circuitBreaker } from "../guard/circuitBreaker";
+import { runGridOnce } from "./gridBot";
 
 type Candle = [number, number, number, number, number, number];
 
@@ -20,31 +21,28 @@ function safeMean(vals: number[]) {
  * without attempting any live orders. This uses the existing SUMMARY_ONLY
  * env-switch you previously added to gridBot.runGridOnce().
  */
-async function printPlannedSummaryIfAvailable(pair: string, gridParams: any, apiKey?: string, apiSecret?: string) {
+type SummaryRunner = typeof runGridOnce;
+
+export async function printPlannedSummaryIfAvailable(
+  pair: string,
+  gridParams: any,
+  apiKey?: string,
+  apiSecret?: string,
+  options: { runGrid?: SummaryRunner } = {}
+) {
+  const gridRunner = options.runGrid ?? runGridOnce;
   try {
-    // set env flag so runGridOnce returns after printing summary
-    process.env.SUMMARY_ONLY = "true";
-    const mod = await import("./gridBot");
-    if (mod && typeof mod.runGridOnce === "function") {
-      try {
-        await mod.runGridOnce(pair, apiKey, apiSecret);
-      } catch (e) {
-        // if runGridOnce fails, log but don't rethrow (we don't want to bypass guard)
-        logger.warn("guard_plan_print_failed", {
-          event: "guard_plan_print_failed",
-          pair,
-          error: e,
-        });
-      }
-    } else {
-      logger.warn("guard_plan_runner_missing", {
-        event: "guard_plan_runner_missing",
-        pair,
-      });
-    }
-  } finally {
-    // clean up env
-    delete process.env.SUMMARY_ONLY;
+    await gridRunner(pair, apiKey, apiSecret, {
+      summaryOnly: true,
+      actor: "guard-preview",
+      configOverrides: gridParams ? { guardPreview: gridParams } : undefined,
+    });
+  } catch (e) {
+    logger.warn("guard_plan_print_failed", {
+      event: "guard_plan_print_failed",
+      pair,
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 }
 

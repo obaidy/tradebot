@@ -30,7 +30,8 @@
     "admin:audit-anchor": "ts-node src/admin/auditAnchorCli.ts",
     "postinstall": "patch-package",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "db:fix-client": "ts-node scripts/fixClientId.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.893.0",

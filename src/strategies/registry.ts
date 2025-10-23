@@ -96,12 +96,12 @@ const STRATEGY_REGISTRY: Record<StrategyId, StrategyDefinition> = {
     description: 'Execute on-chain swaps via configured DEX routers with slippage controls.',
     allowedPlans: deriveAllowedPlans('dex-swap'),
     defaultPair: 'WETH/USDC',
-    supportsPaper: true,
-    supportsLive: true,
-    supportsSummary: true,
-    status: 'beta',
-    ctaLabel: 'Dispatch DEX swap',
-    ctaDescription: 'Use RPC + signer credentials to route trades through on-chain venues.',
+    supportsPaper: false,
+    supportsLive: false,
+    supportsSummary: false,
+    status: 'coming_soon',
+    ctaLabel: 'Coming soon',
+    ctaDescription: 'On-chain swap automation is being prepared for release.',
     requirements: [
       {
         type: 'env',
@@ -138,10 +138,10 @@ const STRATEGY_REGISTRY: Record<StrategyId, StrategyDefinition> = {
     description: 'Route swaps through 1inch or ParaSwap to secure best on-chain execution.',
     allowedPlans: deriveAllowedPlans('dex-aggregation'),
     defaultPair: 'ETH/USDC',
-    supportsPaper: true,
-    supportsLive: true,
-    supportsSummary: true,
-    status: 'beta',
+    supportsPaper: false,
+    supportsLive: false,
+    supportsSummary: false,
+    status: 'coming_soon',
     requirements: [
       {
         type: 'env',
@@ -158,10 +158,10 @@ const STRATEGY_REGISTRY: Record<StrategyId, StrategyDefinition> = {
     description: 'Deploys liquidity into configured pools and harvests rewards with optional compounding.',
     allowedPlans: deriveAllowedPlans('yield-farming'),
     defaultPair: 'USDC/ETH',
-    supportsPaper: true,
-    supportsLive: true,
-    supportsSummary: true,
-    status: 'beta',
+    supportsPaper: false,
+    supportsLive: false,
+    supportsSummary: false,
+    status: 'coming_soon',
     requirements: [
       {
         type: 'env',
@@ -178,10 +178,10 @@ const STRATEGY_REGISTRY: Record<StrategyId, StrategyDefinition> = {
     description: 'Evaluates cross-venue spreads and executes with flash loan liquidity.',
     allowedPlans: deriveAllowedPlans('flash-loan-arb'),
     defaultPair: 'ETH/USDC',
-    supportsPaper: true,
-    supportsLive: true,
-    supportsSummary: true,
-    status: 'beta',
+    supportsPaper: false,
+    supportsLive: false,
+    supportsSummary: false,
+    status: 'coming_soon',
     requirements: [
       {
         type: 'env',
@@ -197,10 +197,10 @@ const STRATEGY_REGISTRY: Record<StrategyId, StrategyDefinition> = {
     description: 'Scans for spreads across chains and evaluates bridge routes.',
     allowedPlans: deriveAllowedPlans('cross-chain-arb'),
     defaultPair: 'ETH/USDC',
-    supportsPaper: true,
-    supportsLive: true,
-    supportsSummary: true,
-    status: 'beta',
+    supportsPaper: false,
+    supportsLive: false,
+    supportsSummary: false,
+    status: 'coming_soon',
     requirements: [
       {
         type: 'env',
@@ -216,10 +216,10 @@ const STRATEGY_REGISTRY: Record<StrategyId, StrategyDefinition> = {
     description: 'Monitors high-volume collections for spread capture opportunities.',
     allowedPlans: deriveAllowedPlans('nft-market-maker'),
     defaultPair: 'NFT',
-    supportsPaper: true,
-    supportsLive: true,
+    supportsPaper: false,
+    supportsLive: false,
     supportsSummary: false,
-    status: 'beta',
+    status: 'coming_soon',
     requirements: [
       {
         type: 'env',
@@ -234,7 +234,9 @@ const STRATEGY_REGISTRY: Record<StrategyId, StrategyDefinition> = {
 export type StrategySummary = Omit<StrategyDefinition, 'run'>;
 
 export function listStrategies(): StrategySummary[] {
-  return Object.values(STRATEGY_REGISTRY).map(({ run, ...summary }) => summary);
+  return Object.values(STRATEGY_REGISTRY)
+    .filter((definition) => definition.status !== 'coming_soon' && definition.allowedPlans.length > 0)
+    .map(({ run, ...summary }) => summary);
 }
 
 export function getStrategyDefinition(id: StrategyId): StrategyDefinition | null {
