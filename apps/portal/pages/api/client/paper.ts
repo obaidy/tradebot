@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
   try {
-    const actor = session.user?.email ?? clientId;
+    const actor = session?.user?.email ?? clientId;
     const status = await triggerPaperRun(clientId, actor);
     res.status(202).json(status);
   } catch (err) {

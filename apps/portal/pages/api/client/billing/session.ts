@@ -28,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const checkout = await createBillingSessionForClient({
       clientId,
       planId,
-      actor: session.user?.email ?? clientId,
+      actor: session?.user?.email ?? clientId,
       successUrl,
       cancelUrl,
       trialDays: 3,

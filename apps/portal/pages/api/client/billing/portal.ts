@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const returnUrl = body?.returnUrl || `${origin}/app`;
     const portal = await createBillingPortalSessionForClient({
       clientId,
-      actor: session.user?.email ?? clientId,
+      actor: session?.user?.email ?? clientId,
       returnUrl,
     });
     res.status(200).json(portal);

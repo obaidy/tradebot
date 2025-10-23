@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   await claimChatConversation({
     conversationId,
     agentId: clientId,
-    agentName: session.user?.name ?? session.user?.email ?? clientId,
+    agentName: session?.user?.name ?? session?.user?.email ?? clientId,
   });
   res.status(200).json({ ok: true });
 }

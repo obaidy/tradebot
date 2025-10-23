@@ -42,7 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       method: 'GET',
       headers: {
         Authorization: `Bearer ${adminToken}`,
-        'x-actor': session.user?.email ?? clientId ?? 'portal-client',
+        'x-actor': session?.user?.email ?? clientId ?? 'portal-client',
       },
     },
     (upstreamRes: any) => {

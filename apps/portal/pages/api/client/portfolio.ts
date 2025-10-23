@@ -29,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         res.status(400).json({ error: 'allocations_array_required' });
         return;
       }
-      const actor = session.user?.email ?? clientId;
+      const actor = session?.user?.email ?? clientId;
       const updated = await updateClientPortfolio(clientId, { allocations: body.allocations }, actor);
       res.status(200).json(updated);
     } catch (err) {

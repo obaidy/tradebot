@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
   try {
-    const actor = session.user?.email ?? clientId;
+    const actor = session?.user?.email ?? clientId;
     const result = await pauseClient(clientId, actor);
     res.status(200).json(result);
   } catch (err) {

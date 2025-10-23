@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const actor = session.user?.email ?? clientId;
+    const actor = session?.user?.email ?? clientId;
     await deleteClientPortfolioStrategy(clientId, strategyId, actor);
     res.status(204).end();
   } catch (err) {

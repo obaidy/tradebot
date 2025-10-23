@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     const payload = await runClientStrategy({
       clientId,
-      actor: session.user?.email ?? clientId,
+      actor: session?.user?.email ?? clientId,
       strategyId,
       runMode: body.runMode ?? body.run_mode,
       pair: body.pair,

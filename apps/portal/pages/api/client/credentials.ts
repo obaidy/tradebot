@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'POST') {
     try {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-      const stored = await storeCredentials(clientId, session.user.email ?? clientId, {
+      const stored = await storeCredentials(clientId, session?.user?.email ?? clientId, {
         exchangeName: body.exchangeName,
         apiKey: body.apiKey,
         apiSecret: body.apiSecret,

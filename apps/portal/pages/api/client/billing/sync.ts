@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(400).json({ error: 'session_id_required' });
       return;
     }
-    const actor = session.user?.email ?? clientId;
+    const actor = session?.user?.email ?? clientId;
     const result = await syncBillingSession({ sessionId, actor });
     res.status(200).json(result ?? { status: 'synced' });
   } catch (err) {

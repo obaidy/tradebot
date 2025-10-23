@@ -21,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const body = typeof req.body === 'string' && req.body.length
       ? JSON.parse(req.body)
       : req.body ?? {};
-    const actor = session.user?.email ?? clientId;
+    const actor = session?.user?.email ?? clientId;
     const result = await cancelSubscriptionForClient({
       clientId,
       actor,
