@@ -10,8 +10,8 @@ async function main() {
     await client.query('BEGIN');
     const updates: Array<{ table: string; rowCount: number }> = [];
 
-    const tables = ['bot_runs', 'bot_guard_state', 'bot_inventory_snapshots'];
-    for (const table of tables) {
+    const updateTables = ['bot_runs', 'bot_inventory_snapshots'];
+    for (const table of updateTables) {
       const result = await client.query(
         `UPDATE ${table}
          SET client_id = $1
@@ -19,6 +19,26 @@ async function main() {
         [TARGET_ID, LEGACY_ID]
       );
       updates.push({ table, rowCount: result.rowCount ?? 0 });
+    }
+
+    const guardStateExists = await client.query(
+      'SELECT 1 FROM bot_guard_state WHERE client_id = $1 LIMIT 1',
+      [TARGET_ID]
+    );
+    if (guardStateExists.rowCount && guardStateExists.rowCount > 0) {
+      const deleteResult = await client.query(
+        'DELETE FROM bot_guard_state WHERE client_id = $1',
+        [LEGACY_ID]
+      );
+      updates.push({ table: 'bot_guard_state_deleted', rowCount: deleteResult.rowCount ?? 0 });
+    } else {
+      const result = await client.query(
+        `UPDATE bot_guard_state
+         SET client_id = $1
+         WHERE client_id = $2`,
+        [TARGET_ID, LEGACY_ID]
+      );
+      updates.push({ table: 'bot_guard_state', rowCount: result.rowCount ?? 0 });
     }
 
     await client.query('COMMIT');
