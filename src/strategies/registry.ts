@@ -10,6 +10,9 @@ import { runYieldFarmingStrategy } from './yieldFarmingStrategy';
 import { runFlashLoanArbStrategy } from './flashLoanArbStrategy';
 import { runCrossChainArbStrategy } from './crossChainArbStrategy';
 import { runNftMarketMakerStrategy } from './nftMarketMakerStrategy';
+import { runWhaleCopyStrategy } from './whaleCopy';
+import { runSentimentSniperStrategy } from './sentimentSniper';
+import { runPerpBasisStrategy } from './perpBasis';
 import type { StrategyId, StrategyRunContext, StrategyRunMode } from './types';
 
 export type StrategyRequirementMode = 'all' | 'any';
@@ -55,6 +58,66 @@ const STRATEGY_REGISTRY: Record<StrategyId, StrategyDefinition> = {
     ctaLabel: 'Launch adaptive grid',
     ctaDescription: 'Mean-reversion engine with guard rails for paper and live tiers.',
     run: runGridStrategy,
+  },
+  'whale-copy': {
+    id: 'whale-copy',
+    name: 'Whale Copy Sniper',
+    description: 'Mirrors pre-vetted whale wallets with liquidity and rug filters.',
+    allowedPlans: deriveAllowedPlans('whale-copy'),
+    defaultPair: 'ETH',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: true,
+    status: 'beta',
+    requirements: [
+      {
+        type: 'env',
+        mode: 'any',
+        keys: ['ETH_RPC_HTTP', 'RPC_URL', 'MEV_RPC_URL'],
+        message: 'Provide an Ethereum RPC URL via ETH_RPC_HTTP or RPC_URL.',
+      },
+    ],
+    run: runWhaleCopyStrategy,
+  },
+  'sentiment-sniper': {
+    id: 'sentiment-sniper',
+    name: 'Social Sentiment Sniper',
+    description: 'Enters early on social volume spikes with contract safety checks.',
+    allowedPlans: deriveAllowedPlans('sentiment-sniper'),
+    defaultPair: 'ETH',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: true,
+    status: 'beta',
+    requirements: [
+      {
+        type: 'env',
+        mode: 'any',
+        keys: ['DEXTOOLS_API_KEY', 'X_BEARER'],
+        message: 'Provide DEXTOOLS_API_KEY or X_BEARER for sentiment ingestion.',
+      },
+    ],
+    run: runSentimentSniperStrategy,
+  },
+  'perp-basis': {
+    id: 'perp-basis',
+    name: 'Perp Funding / Basis',
+    description: 'Captures funding yield by hedging perps against spot balances.',
+    allowedPlans: deriveAllowedPlans('perp-basis'),
+    defaultPair: 'BTC/USDT',
+    supportsPaper: true,
+    supportsLive: true,
+    supportsSummary: true,
+    status: 'beta',
+    requirements: [
+      {
+        type: 'env',
+        mode: 'any',
+        keys: ['BINANCE_API_KEY', 'KUCOIN_API_KEY'],
+        message: 'Provide Binance or KuCoin API credentials for execution.',
+      },
+    ],
+    run: runPerpBasisStrategy,
   },
   mev: {
     id: 'mev',

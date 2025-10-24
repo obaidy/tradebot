@@ -1,6 +1,12 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+const overrideUsersEnv = (process.env.MOBILE_OVERRIDE_USERS || '')
+  .split(',')
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
+const overrideUsers = Array.from(new Set([...overrideUsersEnv, 'ahmed.obaidy12@gmail.com']));
+
 export const CONFIG = {
   ENV: process.env.NODE_ENV || 'development',
   REDIS_URL:
@@ -64,10 +70,7 @@ export const CONFIG = {
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean),
-    OVERRIDE_USERS: (process.env.MOBILE_OVERRIDE_USERS || '')
-      .split(',')
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
+    OVERRIDE_USERS: overrideUsers,
     SAMPLE_CLIENT_ID: process.env.MOBILE_SAMPLE_CLIENT_ID || (process.env.CLIENT_ID || 'default'),
     SAMPLE_DATA_PATH: process.env.MOBILE_SAMPLE_DATA_PATH || 'configs/mobileSample.json',
   }

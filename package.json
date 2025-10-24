@@ -17,6 +17,7 @@
     "deploy:live": "ts-node scripts/deployLive.ts",
     "client-admin": "ts-node src/admin/clientCli.ts",
     "admin:server": "ts-node src/admin/server.ts",
+    "admin:seed-bots": "ts-node src/admin/seedBotConfigs.ts",
     "paper:worker": "ts-node src/jobs/paperRunWorker.ts",
     "client:worker": "ts-node src/workers/clientRunner.ts",
     "arbitrage:worker": "ts-node src/jobs/arbitrageWorker.ts",

@@ -13,6 +13,9 @@ export { runYieldFarmingStrategy } from './yieldFarmingStrategy';
 export { runFlashLoanArbStrategy } from './flashLoanArbStrategy';
 export { runCrossChainArbStrategy } from './crossChainArbStrategy';
 export { runNftMarketMakerStrategy } from './nftMarketMakerStrategy';
+export { runWhaleCopyStrategy } from './whaleCopy';
+export { runSentimentSniperStrategy } from './sentimentSniper';
+export { runPerpBasisStrategy } from './perpBasis';
 export type { StrategyRequirement, StrategySummary } from './registry';
 export type { StrategyId, StrategyRunMode, StrategyRunContext } from './types';
 

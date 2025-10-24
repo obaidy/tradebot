@@ -29,6 +29,16 @@ This starter repo contains a minimal CEX grid bot + backtest script. It's **pape
 
 ---
 
+## New bots (Whale Copy / Sentiment Sniper / Perp Basis)
+
+Before promoting the new workers to `live`:
+
+- **On-chain execution:** set an aggregator key (`ONEINCH_API_KEY` or `PARASWAP_API_KEY`), a reliable RPC endpoint (`ETH_RPC_HTTP`), and a funded-but-limited hot wallet via `WALLET_PRIVATE_KEY`. Without these, whale & sentiment bots stop after logging a “rejected” execution.
+- **Seed defaults:** run `npm run admin:seed-bots` (with `PG_URL`/`CLIENT_ID` exported when targeting remote Postgres) to prefill whale watchlists, sentiment thresholds, and paper allocations. Adjust the generated entries in the portal or by editing `src/admin/seedBotConfigs.ts`.
+- **Perp carry credentials:** configure spot + perp venue IDs and API creds (`PERP_BASIS_SPOT_EXCHANGE`, `PERP_BASIS_PERP_EXCHANGE`, `PERP_BASIS_API_*`). Keep `PERP_BASIS_ENABLE_NEGATIVE=false` until you have validated borrow costs and reduce-only close behaviour with your exchange.
+
+---
+
 ## Configuration
 
 Key environment variables and defaults are captured in `src/config.ts`. Frequently tuned values:
@@ -61,6 +71,12 @@ Key environment variables and defaults are captured in `src/config.ts`. Frequent
 | `DASHBOARD_PORT` | `9102` | HTML dashboard server port. |
 | `LOG_INGEST_WEBHOOK` | _(unset)_ | Optional webhook that receives every JSON log entry. |
 | `WALKFORWARD_CONFIG` | `configs/walkforward.json` | Alternate path for walk-forward automation config. |
+| `ONEINCH_API_KEY` / `PARASWAP_API_KEY` | _(unset)_ | Required for on-chain bots to submit swaps through 1inch or ParaSwap. |
+| `ETH_RPC_HTTP` / `ETH_RPC_WSS` | _(unset)_ | Ethereum RPC endpoints used for safety checks and live execution. |
+| `WALLET_PRIVATE_KEY` | _(unset)_ | Hot wallet signer for whale & sentiment execution. Keep balances minimal. |
+| `WHALE_COPY_BASE_TOKEN` / `SENTIMENT_BASE_TOKEN` | `WETH` | Base asset spent by the on-chain bots when entering new tokens. |
+| `PERP_BASIS_SPOT_EXCHANGE` / `PERP_BASIS_PERP_EXCHANGE` | `binance` / `binanceusdm` | ccxt identifiers for the spot/perp venues hedged by the basis bot. |
+| `PERP_BASIS_ENABLE_NEGATIVE` | `false` | Lift only after confirming borrow availability and reduce-only closes on your venue. |
 | `ENABLE_REDIS_CACHE` | `false` | Toggle Redis-backed caching; set `true` only when a Redis endpoint is available. |
 | `EXCHANGE_RETRY_ATTEMPTS` | `5` | Retry attempts for CCXT order/ticker calls before surfacing an error. |
 | `EXCHANGE_RETRY_DELAY_MS` | `500` | Initial delay (ms) between retries; exponential backoff is applied. |

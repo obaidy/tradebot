@@ -59,7 +59,7 @@ export const PLAN_DEFINITIONS: PlanDefinition[] = [
     priceUsd: 199,
     description: 'Multi-exchange, live trading allowed, advanced support.',
     features: ['Live trading unlock', 'Multiple exchange keys', 'Advanced metrics + alerts'],
-    strategies: ['grid', 'mev', 'perp-grid'],
+    strategies: ['grid', 'mev', 'perp-grid', 'whale-copy', 'perp-basis', 'sentiment-sniper'],
     stripePriceId: process.env.STRIPE_PRO_PRICE_ID || 'price_pro_test',
     limits: {
       maxSymbols: 10,
@@ -92,6 +92,9 @@ export const PLAN_DEFINITIONS: PlanDefinition[] = [
       'grid',
       'mev',
       'perp-grid',
+      'whale-copy',
+      'perp-basis',
+      'sentiment-sniper',
     ],
     limits: {
       maxSymbols: 50,

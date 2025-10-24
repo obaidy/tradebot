@@ -7,7 +7,10 @@ export type StrategyId =
   | 'yield-farming'
   | 'flash-loan-arb'
   | 'cross-chain-arb'
-  | 'nft-market-maker';
+  | 'nft-market-maker'
+  | 'whale-copy'
+  | 'sentiment-sniper'
+  | 'perp-basis';
 
 export type StrategyRunMode = 'summary' | 'paper' | 'live';
 

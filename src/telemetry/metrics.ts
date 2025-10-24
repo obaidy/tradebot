@@ -112,6 +112,24 @@ export const clientWorkerFailureCounter = new Counter({
   labelNames: ['client_id', 'worker_id'] as const,
 });
 
+export const sentinelTriggerCounter = new Counter({
+  name: 'sentinel_triggers_total',
+  help: 'Number of times the kill-switch sentinel triggered',
+  labelNames: ['client_id', 'type'] as const,
+});
+
+export const sentinelGasGauge = new Gauge({
+  name: 'sentinel_gas_wei',
+  help: 'Latest gas price reading (wei) recorded by sentinel',
+  labelNames: ['client_id'] as const,
+});
+
+export const sentinelBtcMoveGauge = new Gauge({
+  name: 'sentinel_btc_move_pct',
+  help: 'Latest BTC percentage move tracked by sentinel (5m window)',
+  labelNames: ['client_id'] as const,
+});
+
 export function startMetricsServer(port = Number(process.env.METRICS_PORT || 9100)) {
   if (metricsRegistered.started) return;
   metricsRegistered.started = true;
@@ -155,4 +173,7 @@ export function resetMetrics() {
   clientQueueDepthGauge.reset();
   clientWorkerStatusGauge.reset();
   clientWorkerFailureCounter.reset();
+  sentinelTriggerCounter.reset();
+  sentinelGasGauge.reset();
+  sentinelBtcMoveGauge.reset();
 }

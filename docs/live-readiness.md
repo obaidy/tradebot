@@ -7,6 +7,9 @@ Before turning on live trading for a client, confirm the following controls are 
 - **Plan** – Only `pro` and `override` plans allow live runs. Starter remains paper-only.
 - **Allowed exchanges** – Verify the client’s target venue is listed in `plan.limits.allowedExchanges`.
 - **API credentials** – `ClientConfigService` must be able to decrypt a live key (portal → Stored credentials). Missing keys are a hard failure in live mode.
+- **On-chain prerequisites** – Whale/Sentiment bots require at least one DEX aggregator API key (`ONEINCH_API_KEY` or `PARASWAP_API_KEY`), funded hot wallet (`WALLET_PRIVATE_KEY`) and RPC endpoints (`ETH_RPC_HTTP`/`ETH_RPC_WSS`). Confirm the wallet is capped to the desired bankroll.
+- **Seeding** – Run `npm run admin:seed-bots` (with the appropriate `CLIENT_ID`/`PG_URL`) so watchlists, sentiment thresholds, and paper allocations are populated before live cutover.
+- **Perp basis keys** – Spot + perp venues must both expose working credentials (`PERP_BASIS_SPOT_EXCHANGE`, `PERP_BASIS_PERP_EXCHANGE`, API key/secret/passphrase). Leave `PERP_BASIS_ENABLE_NEGATIVE=false` until borrow limits and reduce-only closes are validated with the venue.
 
 ## 2. Risk limits
 

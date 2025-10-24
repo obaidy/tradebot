@@ -4,6 +4,7 @@ import { runGuardedGrid } from './strategies/gridBot_live_guard';
 import { CONFIG } from './config';
 import { startMetricsServer } from './telemetry/metrics';
 import { startKillSwitchServer } from './guard/killSwitch';
+import { startKillSwitchSentinel } from './jobs/killSwitchSentinel';
 import { circuitBreaker } from './guard/circuitBreaker';
 import { setLogIngestionWebhook } from './utils/logger';
 import { startDashboardServer } from './dashboard/server';
@@ -25,6 +26,9 @@ async function main() {
 
   startMetricsServer();
   startKillSwitchServer();
+  startKillSwitchSentinel().catch((error) => {
+    console.error('[index] kill-switch sentinel failed to start', error);
+  });
   startDashboardServer(pool);
 
   const shouldStartAdmin =
