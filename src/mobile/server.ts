@@ -3,7 +3,7 @@ import { URL } from 'url';
 import { Socket } from 'net';
 import crypto from 'crypto';
 import { Pool } from 'pg';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import { CONFIG } from '../config';
 import { ClientsRepository } from '../db/clientsRepo';
 import { ClientStrategyAllocationsRepository } from '../db/clientStrategyAllocationsRepo';
@@ -816,13 +816,13 @@ export function createMobileIntegration(pool: Pool): MobileIntegration {
     if (parsedUrl.pathname !== `${MOBILE_PREFIX}/ws`) {
       return false;
     }
-    wss.handleUpgrade(req, socket, head, (ws, request) => {
+    wss.handleUpgrade(req, socket, head, (ws: WebSocket, request: IncomingMessage) => {
       wss.emit('connection', ws, request);
     });
     return true;
   };
 
-  wss.on('connection', async (socket, request) => {
+  wss.on('connection', async (socket: WebSocket, request: IncomingMessage) => {
     try {
       const url = new URL(request.url ?? `${MOBILE_PREFIX}/ws`, 'http://localhost');
       const token = url.searchParams.get('token');
