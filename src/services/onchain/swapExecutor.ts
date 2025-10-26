@@ -91,7 +91,38 @@ export async function executeBotSwap(config: BotSwapExecutionConfig): Promise<Sw
     },
   });
 
+  const enabledAggregators = service.listEnabledAggregators();
   let orderRecord: Awaited<ReturnType<OrdersRepository['insertOrder']>> | null = null;
+
+  if (!enabledAggregators.length) {
+    if (config.runMode === 'live') {
+      throw new Error('dex_aggregator_unavailable');
+    }
+    logger.warn('bot_swap_aggregator_missing', {
+      event: 'bot_swap_aggregator_missing',
+      botName: config.botName,
+      runMode: config.runMode,
+    });
+    orderRecord = await config.ordersRepo.insertOrder({
+      runId,
+      pair: `${config.tokenInSymbol ?? config.tokenIn}/${config.tokenOutSymbol ?? config.tokenOut}`,
+      side: 'buy',
+      price: 0,
+      amount: amountInHuman,
+      status: config.runMode,
+      filledAmount: config.runMode === 'summary' ? 0 : amountInHuman,
+      remainingAmount: 0,
+      raw: {
+        reason: 'aggregator_unavailable',
+      },
+    });
+    await config.runsRepo.updateStatus({ runId, status: 'completed' });
+    return {
+      runId,
+      status: config.runMode,
+      amountIn: amountInHuman,
+    };
+  }
 
   try {
     const recipient =
