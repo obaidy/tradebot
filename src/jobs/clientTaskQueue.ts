@@ -19,11 +19,21 @@ function getConnection() {
   if (!redisUrl) return null;
   try {
     const parsed = new URL(redisUrl);
-    return {
+    const connection: Record<string, unknown> = {
       host: parsed.hostname,
       port: Number(parsed.port || '6379'),
       password: parsed.password || undefined,
     };
+    if (parsed.protocol === 'rediss:' || parsed.searchParams.get('ssl') === 'true') {
+      connection.tls = {};
+    }
+    // eslint-disable-next-line no-console
+    console.log('[client-task-queue] connecting to Redis', {
+      host: connection.host,
+      port: connection.port,
+      tls: Boolean(connection.tls),
+    });
+    return connection;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[client-task-queue] Invalid REDIS_URL; queue disabled', err);
@@ -45,10 +55,16 @@ function buildQueue(clientId: string) {
     defaultJobOptions: { removeOnComplete: 100, removeOnFail: 200 },
   });
   // eslint-disable-next-line no-new
-  new QueueScheduler(name, { connection }).waitUntilReady().catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error('[client-task-queue] scheduler error', { clientId, err });
-  });
+  new QueueScheduler(name, { connection })
+    .waitUntilReady()
+    .then(() => {
+      // eslint-disable-next-line no-console
+      console.log('[client-task-queue] scheduler ready', { clientId, queue: name });
+    })
+    .catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error('[client-task-queue] scheduler error', { clientId, err });
+    });
   queueCache.set(name, queue);
   return queue;
 }
