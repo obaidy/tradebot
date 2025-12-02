@@ -10,6 +10,7 @@ import {
   fetchStrategies,
   initClient,
 } from '../../../lib/adminClient';
+import type { ClientSnapshot, PortfolioAllocation } from '../../../types/portal';
 import { getSessionClientId } from '../../../lib/sessionClient';
 
 async function safeCall<T>(promise: Promise<T>, fallback: T): Promise<T> {
@@ -19,6 +20,21 @@ async function safeCall<T>(promise: Promise<T>, fallback: T): Promise<T> {
     console.warn('[portal] bootstrap call failed', err);
     return fallback;
   }
+}
+
+function isSnapshotPayload(payload: unknown): payload is ClientSnapshot {
+  return Boolean(
+    payload &&
+      typeof payload === 'object' &&
+      Array.isArray((payload as ClientSnapshot).credentials)
+  );
+}
+
+function getAllocations(payload: unknown): PortfolioAllocation[] {
+  if (payload && typeof payload === 'object' && Array.isArray((payload as any).allocations)) {
+    return (payload as { allocations: PortfolioAllocation[] }).allocations;
+  }
+  return [];
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -43,29 +59,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.warn('[portal] init client failed', err);
   }
   try {
-    type SnapshotPayload = Awaited<ReturnType<typeof fetchClientSnapshot>>;
-    type PortfolioPayload = Awaited<ReturnType<typeof fetchClientPortfolio>>;
-    type HistoryPayload = Awaited<ReturnType<typeof fetchClientHistory>>;
-    type MetricsPayload = Awaited<ReturnType<typeof fetchMetrics>>;
-
     const [plans, strategies, snapshot, portfolio, history, metrics] = await Promise.all([
       safeCall(fetchPlans(), []),
       safeCall(fetchStrategies(), []),
-      safeCall<SnapshotPayload | null>(fetchClientSnapshot(clientId), null),
-      safeCall<PortfolioPayload | null>(fetchClientPortfolio(clientId), null),
-      safeCall<HistoryPayload | null>(fetchClientHistory(clientId), null),
-      safeCall<MetricsPayload | null>(fetchMetrics(clientId), null),
+      safeCall(fetchClientSnapshot(clientId), null),
+      safeCall(fetchClientPortfolio(clientId), null),
+      safeCall(fetchClientHistory(clientId), null),
+      safeCall(fetchMetrics(clientId), null),
     ]);
-    const snapshotData = snapshot as SnapshotPayload | null;
-    const portfolioData = portfolio as PortfolioPayload | null;
+    const snapshotData = isSnapshotPayload(snapshot) ? snapshot : null;
     const credentialCount = snapshotData?.credentials?.length ?? 0;
-    const allocations = (portfolioData?.allocations ?? []) as Array<{ enabled?: boolean }>;
+    const portfolioData = (portfolio && typeof portfolio === 'object' ? (portfolio as Record<string, unknown>) : null) || null;
+    const allocations = getAllocations(portfolioData ?? undefined);
     const hasActiveBots = allocations.some((allocation) => allocation.enabled);
     res.status(200).json({
       plans,
       strategies,
       snapshot: snapshotData,
-      portfolio: portfolioData,
+      portfolio: portfolioData ? { ...portfolioData, allocations } : { allocations },
       history,
       metrics,
       needsOnboarding: credentialCount === 0,
