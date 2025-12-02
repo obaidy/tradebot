@@ -122,7 +122,14 @@ export async function updateClientPlan(clientId: string, plan: string, actor: st
   });
 }
 
-export async function listCredentials(clientId: string) {
+export interface StoredCredentialSummary {
+  clientId?: string;
+  exchangeName: string;
+  createdAt?: string;
+  hasPassphrase?: boolean;
+}
+
+export async function listCredentials(clientId: string): Promise<StoredCredentialSummary[]> {
   return adminRequest(`/clients/${clientId}/credentials`);
 }
 
