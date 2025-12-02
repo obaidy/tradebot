@@ -22,21 +22,6 @@ async function safeCall<T>(promise: Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-function isSnapshotPayload(payload: unknown): payload is ClientSnapshot {
-  return Boolean(
-    payload &&
-      typeof payload === 'object' &&
-      Array.isArray((payload as ClientSnapshot).credentials)
-  );
-}
-
-function getAllocations(payload: unknown): PortfolioAllocation[] {
-  if (payload && typeof payload === 'object' && Array.isArray((payload as any).allocations)) {
-    return (payload as { allocations: PortfolioAllocation[] }).allocations;
-  }
-  return [];
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'method_not_allowed' });
@@ -62,20 +47,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const [plans, strategies, snapshot, portfolio, history, metrics] = await Promise.all([
       safeCall(fetchPlans(), []),
       safeCall(fetchStrategies(), []),
-      safeCall(fetchClientSnapshot(clientId), null),
+      safeCall<ClientSnapshot | null>(fetchClientSnapshot(clientId), null),
       safeCall(fetchClientPortfolio(clientId), null),
       safeCall(fetchClientHistory(clientId), null),
       safeCall(fetchMetrics(clientId), null),
     ]);
-    const snapshotData = isSnapshotPayload(snapshot) ? snapshot : null;
-    const credentialCount = snapshotData?.credentials?.length ?? 0;
-    const portfolioData = (portfolio && typeof portfolio === 'object' ? (portfolio as Record<string, unknown>) : null) || null;
-    const allocations = getAllocations(portfolioData ?? undefined);
+    const credentialCount = snapshot?.credentials?.length ?? 0;
+    const portfolioData = portfolio && typeof portfolio === 'object' ? (portfolio as Record<string, unknown>) : null;
+    const allocations: PortfolioAllocation[] = Array.isArray((portfolioData as any)?.allocations)
+      ? ((portfolioData as any).allocations as PortfolioAllocation[])
+      : [];
     const hasActiveBots = allocations.some((allocation) => allocation.enabled);
     res.status(200).json({
       plans,
       strategies,
-      snapshot: snapshotData,
+      snapshot,
       portfolio: portfolioData ? { ...portfolioData, allocations } : { allocations },
       history,
       metrics,
