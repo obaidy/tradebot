@@ -43,22 +43,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.warn('[portal] init client failed', err);
   }
   try {
+    type SnapshotPayload = Awaited<ReturnType<typeof fetchClientSnapshot>>;
+    type PortfolioPayload = Awaited<ReturnType<typeof fetchClientPortfolio>>;
+    type HistoryPayload = Awaited<ReturnType<typeof fetchClientHistory>>;
+    type MetricsPayload = Awaited<ReturnType<typeof fetchMetrics>>;
+
     const [plans, strategies, snapshot, portfolio, history, metrics] = await Promise.all([
       safeCall(fetchPlans(), []),
       safeCall(fetchStrategies(), []),
-      safeCall<Awaited<ReturnType<typeof fetchClientSnapshot>> | null>(fetchClientSnapshot(clientId), null),
-      safeCall<Awaited<ReturnType<typeof fetchClientPortfolio>> | null>(fetchClientPortfolio(clientId), null),
-      safeCall<Awaited<ReturnType<typeof fetchClientHistory>> | null>(fetchClientHistory(clientId), null),
-      safeCall<Awaited<ReturnType<typeof fetchMetrics>> | null>(fetchMetrics(clientId), null),
+      safeCall<SnapshotPayload | null>(fetchClientSnapshot(clientId), null),
+      safeCall<PortfolioPayload | null>(fetchClientPortfolio(clientId), null),
+      safeCall<HistoryPayload | null>(fetchClientHistory(clientId), null),
+      safeCall<MetricsPayload | null>(fetchMetrics(clientId), null),
     ]);
-    const credentialCount = snapshot?.credentials?.length ?? 0;
-    const allocations = portfolio?.allocations ?? [];
-    const hasActiveBots = allocations.some((allocation: any) => allocation.enabled);
+    const snapshotData = snapshot as SnapshotPayload | null;
+    const portfolioData = portfolio as PortfolioPayload | null;
+    const credentialCount = snapshotData?.credentials?.length ?? 0;
+    const allocations = (portfolioData?.allocations ?? []) as Array<{ enabled?: boolean }>;
+    const hasActiveBots = allocations.some((allocation) => allocation.enabled);
     res.status(200).json({
       plans,
       strategies,
-      snapshot,
-      portfolio,
+      snapshot: snapshotData,
+      portfolio: portfolioData,
       history,
       metrics,
       needsOnboarding: credentialCount === 0,
