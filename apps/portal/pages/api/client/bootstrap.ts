@@ -46,10 +46,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const [plans, strategies, snapshot, portfolio, history, metrics] = await Promise.all([
       safeCall(fetchPlans(), []),
       safeCall(fetchStrategies(), []),
-      safeCall(fetchClientSnapshot(clientId), null),
-      safeCall(fetchClientPortfolio(clientId), null),
-      safeCall(fetchClientHistory(clientId), null),
-      safeCall(fetchMetrics(clientId), null),
+      safeCall<Awaited<ReturnType<typeof fetchClientSnapshot>> | null>(fetchClientSnapshot(clientId), null),
+      safeCall<Awaited<ReturnType<typeof fetchClientPortfolio>> | null>(fetchClientPortfolio(clientId), null),
+      safeCall<Awaited<ReturnType<typeof fetchClientHistory>> | null>(fetchClientHistory(clientId), null),
+      safeCall<Awaited<ReturnType<typeof fetchMetrics>> | null>(fetchMetrics(clientId), null),
     ]);
     const credentialCount = snapshot?.credentials?.length ?? 0;
     const allocations = portfolio?.allocations ?? [];
@@ -68,4 +68,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(500).json({ error: 'bootstrap_failed', detail: err instanceof Error ? err.message : 'unknown_error' });
   }
 }
-
