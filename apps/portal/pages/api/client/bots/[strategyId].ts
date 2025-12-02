@@ -7,7 +7,7 @@ import { getSessionClientId } from '../../../../lib/sessionClient';
 type PortfolioAllocation = {
   strategyId: string;
   weightPct: number;
-  runMode: string | null;
+  runMode: string;
   maxRiskPct?: number | null;
   enabled?: boolean;
   config?: Record<string, unknown> | null;
@@ -24,7 +24,7 @@ function normalizeAllocations(portfolio: ClientPortfolio | null): PortfolioAlloc
     strategyId: allocation.strategyId,
     weightPct: allocation.weightPct,
     maxRiskPct: allocation.maxRiskPct ?? null,
-    runMode: allocation.runMode ?? null,
+    runMode: allocation.runMode ?? 'paper',
     enabled: allocation.enabled,
     config: allocation.config ?? null,
     updatedAt: allocation.updatedAt ?? null,
@@ -38,7 +38,7 @@ async function saveAllocations(clientId: string, allocations: PortfolioAllocatio
   return normalizedAllocations.map((allocation) => ({
     strategyId: allocation.strategyId,
     weightPct: allocation.weightPct,
-    runMode: allocation.runMode ?? null,
+    runMode: allocation.runMode ?? 'paper',
     enabled: allocation.enabled,
     config: allocation.config ?? null,
     updatedAt: allocation.updatedAt ?? null,
