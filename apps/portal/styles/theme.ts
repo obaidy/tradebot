@@ -45,21 +45,14 @@ export const layout = {
   glassBorder: '1px solid rgba(148, 163, 184, 0.15)',
 };
 
-export const metricsPlaceholders = {
-  winRate: '86% paper win rate last 90 days',
-  traders: '2,750+ desks automated',
-  volume: '$210M lifetime volume managed',
-  latency: 'Sub-180ms guard reaction time',
-};
-
 export const callouts = {
   hero: {
-    headline: 'OctoBot keeps every arm on the market',
+    headline: 'Connect your exchange. Pick a bot. Let it trade for you 24/7.',
     subheadline:
-      'Spin up adaptive strategies, monitor multi-venue telemetry, and promote to live with audit-ready guard rails—all from one tentacled command center.',
-    primaryCta: 'Dive into the Portal',
-    secondaryCta: 'Meet the Pods',
-    trustBadges: ['Flashbots Native', 'Eight-Arm Observability', 'Audit-Ready Artefacts', '24/7 Ops Pod'],
+      'Bring your own Binance API keys, choose a grid or DCA template, and monitor every fill from the same place. You stay in control of deposits and withdrawals.',
+    primaryCta: 'Open the portal',
+    secondaryCta: 'Browse bots',
+    trustBadges: ['Self-custody keys', 'Paper + live modes', 'Transparent trade log'],
   },
   featureSections: [
     {
@@ -163,7 +156,6 @@ export const theme = {
   palette,
   typography,
   layout,
-  metricsPlaceholders,
   callouts,
   pricingPlans,
   testimonials,

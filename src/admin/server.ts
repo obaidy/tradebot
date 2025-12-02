@@ -1063,6 +1063,11 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
             const exchange = typeof row.exchange === 'string' ? row.exchange : params.exchange ?? null;
             const estNetProfitRaw =
               summary?.estNetProfit ?? summary?.raw?.estNetProfit ?? params.summary?.raw?.estNetProfit ?? null;
+            const strategyId =
+              (typeof params.strategyId === 'string' && params.strategyId) ||
+              (typeof params.strategy_id === 'string' && params.strategy_id) ||
+              (typeof summary?.strategyId === 'string' && summary?.strategyId) ||
+              null;
             return {
               runId: row.run_id,
               status: row.status,
@@ -1072,6 +1077,7 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
               estNetProfit: estNetProfitRaw !== null ? Number(estNetProfitRaw) : null,
               perTradeUsd: params.perTradeUsd ?? params.summary?.perTradeUsd ?? null,
               exchange,
+              strategyId,
             };
           });
           const guardState = guard.rows[0]
@@ -1100,6 +1106,163 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
             runs: runSeries,
             guard: guardState,
             inventory: inventorySeries,
+          });
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const tradesMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/trades$/);
+      if (tradesMatch) {
+        const clientId = decodeURIComponent(tradesMatch[1]);
+        if (ctx.method === 'GET') {
+          const limitRaw = Number(ctx.query.get('limit') || '50');
+          const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 50, 10), 200);
+          const start = ctx.query.get('start');
+          const end = ctx.query.get('end');
+          const botFilter = ctx.query.get('bot');
+          const cursorParam = ctx.query.get('cursor');
+          const params: any[] = [clientId];
+          const where: string[] = ['f.client_id = $1'];
+          if (start) {
+            params.push(new Date(start).toISOString());
+            where.push(`f.fill_timestamp >= $${params.length}`);
+          }
+          if (end) {
+            params.push(new Date(end).toISOString());
+            where.push(`f.fill_timestamp <= $${params.length}`);
+          }
+          if (botFilter) {
+            params.push(botFilter);
+            where.push(`COALESCE(r.params_json->>'strategyId', r.params_json->>'strategy_id') = $${params.length}`);
+          }
+          if (cursorParam) {
+            const [tsPart, idPart] = cursorParam.split('_');
+            const cursorTs = tsPart ? new Date(tsPart) : null;
+            const cursorId = idPart ? Number(idPart) : null;
+            if (cursorTs && Number.isFinite(cursorTs.getTime()) && Number.isFinite(cursorId)) {
+              params.push(cursorTs.toISOString());
+              params.push(Number(cursorId));
+              where.push(`(f.fill_timestamp, f.id) < ($${params.length - 1}, $${params.length})`);
+            }
+          }
+          params.push(limit + 1);
+          const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+          const tradesQuery = `
+            SELECT
+              f.id,
+              f.run_id,
+              f.pair,
+              f.price::float AS price,
+              f.amount::float AS amount,
+              f.fee::float AS fee,
+              f.side,
+              f.fill_timestamp,
+              r.exchange,
+              r.params_json,
+              (r.params_json->>'runMode') AS db_run_mode
+            FROM bot_fills f
+            LEFT JOIN bot_runs r ON r.run_id = f.run_id
+            ${whereClause}
+            ORDER BY f.fill_timestamp DESC, f.id DESC
+            LIMIT $${params.length}
+          `;
+          const result = await pool.query(tradesQuery, params);
+          const hasMore = result.rows.length > limit;
+          const items = hasMore ? result.rows.slice(0, -1) : result.rows.slice();
+          const ascending = items
+            .slice()
+            .sort((a, b) => {
+              const aTs = new Date(a.fill_timestamp).getTime();
+              const bTs = new Date(b.fill_timestamp).getTime();
+              if (aTs === bTs) {
+                return a.id - b.id;
+              }
+              return aTs - bTs;
+            });
+          const positions = new Map<
+            string,
+            {
+              qty: number;
+              avgPrice: number;
+            }
+          >();
+          const pnlMap = new Map<
+            number,
+            {
+              pnl: number;
+              cumulative: number;
+            }
+          >();
+          let cumulative = 0;
+          for (const row of ascending) {
+            const key = row.pair || 'UNKNOWN';
+            const side = typeof row.side === 'string' && row.side.toLowerCase() === 'sell' ? 'sell' : 'buy';
+            const amount = Number(row.amount) || 0;
+            const price = Number(row.price) || 0;
+            const pos = positions.get(key) ?? { qty: 0, avgPrice: 0 };
+            let pnl = 0;
+            if (side === 'buy') {
+              const totalCost = pos.avgPrice * pos.qty + price * amount;
+              const nextQty = pos.qty + amount;
+              pos.qty = nextQty;
+              pos.avgPrice = nextQty > 0 ? totalCost / nextQty : 0;
+            } else if (amount > 0) {
+              const sellQty = Math.min(amount, pos.qty || 0);
+              if (sellQty > 0) {
+                pnl = (price - pos.avgPrice) * sellQty;
+                pos.qty = Math.max(pos.qty - sellQty, 0);
+                if (pos.qty === 0) {
+                  pos.avgPrice = 0;
+                }
+              }
+            }
+            cumulative += pnl;
+            pnlMap.set(row.id, { pnl, cumulative });
+            positions.set(key, pos);
+          }
+          const trades = items.map((row) => {
+            const paramsJson = (row.params_json ?? {}) as Record<string, any>;
+            const strategyId =
+              (typeof paramsJson.strategyId === 'string' && paramsJson.strategyId) ||
+              (typeof paramsJson.strategy_id === 'string' && paramsJson.strategy_id) ||
+              null;
+            const botLabel =
+              (typeof paramsJson.strategyName === 'string' && paramsJson.strategyName) ||
+              (typeof paramsJson.summary?.strategyName === 'string' && paramsJson.summary.strategyName) ||
+              strategyId;
+            const runMode =
+              paramsJson.runMode ??
+              paramsJson.run_mode ??
+              paramsJson.metadata?.runMode ??
+              row.db_run_mode ??
+              'unknown';
+            const pnlEntry = pnlMap.get(row.id) ?? { pnl: 0, cumulative: cumulative };
+            return {
+              id: row.id,
+              runId: row.run_id,
+              bot: botLabel ?? 'Bot',
+              strategyId,
+              pair: row.pair,
+              side: String(row.side || '').toUpperCase(),
+              price: Number(row.price) || 0,
+              amount: Number(row.amount) || 0,
+              fee: row.fee !== null ? Number(row.fee) : null,
+              timestamp: new Date(row.fill_timestamp).toISOString(),
+              exchange: row.exchange ?? null,
+              mode: runMode,
+              pnlUsd: pnlEntry.pnl,
+              cumulativePnlUsd: pnlEntry.cumulative,
+            };
+          });
+          const lastItem = hasMore ? trades[trades.length - 1] : null;
+          sendJson(res, 200, {
+            items: trades,
+            nextCursor:
+              hasMore && lastItem
+                ? `${lastItem.timestamp}_${lastItem.id}`
+                : null,
           });
           return;
         }

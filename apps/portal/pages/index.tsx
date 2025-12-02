@@ -6,16 +6,8 @@ import { HeroVisualization } from '../components/landing/HeroVisualization';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { MetricCard } from '../components/ui/MetricCard';
 import { Section } from '../components/ui/Section';
-import { callouts, faqItems, metricsPlaceholders, pricingPlans, testimonials } from '../styles/theme';
-
-const metrics = [
-  { label: 'Paper win rate', value: metricsPlaceholders.winRate, accent: 'primary' as const },
-  { label: 'Active traders', value: metricsPlaceholders.traders, accent: 'secondary' as const },
-  { label: 'Managed volume', value: metricsPlaceholders.volume, accent: 'success' as const },
-  { label: 'Latency guard', value: metricsPlaceholders.latency, accent: 'warning' as const },
-];
+import { callouts, faqItems, pricingPlans } from '../styles/theme';
 
 const strategiesShowcase = [
   {
@@ -53,6 +45,36 @@ const strategiesShowcase = [
       'Automate treasury accumulation across majors with configurable cadence, slippage controls, and guardrail alerts.',
     plans: 'Starter · Pro',
     highlights: ['Paper + Live', 'Schedule based', 'Escalation alerts'],
+  },
+];
+
+const trustSignals = [
+  {
+    title: 'You keep custody',
+    body: 'API keys stay in your exchange account. Withdrawals stay disabled and you can rotate or revoke keys any time.',
+  },
+  {
+    title: 'Nothing to hide',
+    body: 'Every trade, bot action, and API call is logged in the Activity tab so you always know what fired and when.',
+  },
+  {
+    title: 'Built for Binance first',
+    body: 'We support Binance Spot at launch so the UX, docs, and guardrails can stay painfully clear before adding more venues.',
+  },
+];
+
+const onboardingSteps = [
+  {
+    title: '1. Connect Binance',
+    body: 'Paste your API key and secret, keep withdrawals disabled, and run a quick connectivity check.',
+  },
+  {
+    title: '2. Choose a bot',
+    body: 'Start with Grid or DCA, pick a pair, set allocation, and decide between paper or live mode.',
+  },
+  {
+    title: '3. Watch the activity feed',
+    body: 'Trades, PnL, and alerts land in Activity so you know what the bot is doing before you add more capital.',
   },
 ];
 
@@ -127,7 +149,7 @@ export default function LandingPage() {
           <Section spacing="6rem 0" id="hero" containerClassName="landing-hero">
             <div className="landing-hero__content">
               <div className="landing-hero__headline">
-                <Badge tone="primary">OctoBot Control Plane</Badge>
+                <Badge tone="primary">Binance bots · Self custody</Badge>
                 <h1 className="section-heading gradient-text" style={{ margin: 0 }}>
                   {callouts.hero.headline}
                 </h1>
@@ -154,6 +176,9 @@ export default function LandingPage() {
                   </Badge>
                 ))}
               </div>
+              <p style={{ margin: '1.5rem 0 0', color: '#94A3B8', fontSize: '0.8rem' }}>
+                Risk disclaimer: No guaranteed profits. You can lose money. You stay in control of your exchange account.
+              </p>
             </div>
             <div className="landing-hero__visual">
               <Card glass hoverLift className="landing-hero__card">
@@ -229,9 +254,19 @@ export default function LandingPage() {
                   control while the bots handle execution.
                 </p>
               </div>
-              <div className="metrics-grid">
-                {metrics.map((metric) => (
-                  <MetricCard key={metric.label} label={metric.label} value={metric.value} accent={metric.accent} />
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gap: '1.5rem',
+                  width: '100%',
+                }}
+              >
+                {trustSignals.map((signal) => (
+                  <Card key={signal.title} className="landing-feature-card" style={{ height: '100%' }}>
+                    <h3 style={{ margin: 0 }}>{signal.title}</h3>
+                    <p style={{ margin: '0.75rem 0 0', color: '#94A3B8' }}>{signal.body}</p>
+                  </Card>
                 ))}
               </div>
             </div>
@@ -327,29 +362,25 @@ export default function LandingPage() {
             </div>
           </Section>
 
-          <Section spacing="4rem 0" align="center" id="pricing">
+          <Section spacing="4rem 0" align="center" id="how-it-works">
             <div style={{ maxWidth: '760px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <Badge tone="primary">What operators say</Badge>
-              <h2 className="section-heading">Trusted by systematic trading desks</h2>
+              <Badge tone="primary">How it works</Badge>
+              <h2 className="section-heading">Three screens and you&apos;re trading</h2>
               <p className="section-subheading" style={{ margin: '0 auto' }}>
-                Power users lean on OctoBot to launch, monitor, and audit dozens of strategies without scaling engineering
-                headcount.
+                No made-up hedge funds. Just connect Binance, pick a bot, set a budget, and keep watching the feed.
               </p>
             </div>
             <div className="testimonial-row landing-testimonials">
-              {testimonials.map((item, idx) => (
-                <Card key={item.name} hoverLift style={{ padding: '2rem', animationDelay: `${idx * 0.1}s` }}>
-                  <p style={{ fontSize: '1.05rem', lineHeight: 1.7, color: '#E2E8F0' }}>“{item.quote}”</p>
-                  <div style={{ marginTop: '1.5rem' }}>
-                    <p style={{ margin: 0, fontWeight: 600 }}>{item.name}</p>
-                    <p style={{ margin: '0.35rem 0 0', color: '#94A3B8', fontSize: '0.85rem' }}>{item.role}</p>
-                  </div>
+              {onboardingSteps.map((item, idx) => (
+                <Card key={item.title} hoverLift style={{ padding: '2rem', animationDelay: `${idx * 0.05}s` }}>
+                  <p style={{ fontSize: '1.2rem', margin: 0 }}>{item.title}</p>
+                  <p style={{ margin: '0.75rem 0 0', color: '#94A3B8', lineHeight: 1.6 }}>{item.body}</p>
                 </Card>
               ))}
             </div>
           </Section>
 
-          <Section spacing="4rem 0" align="center">
+          <Section spacing="4rem 0" align="center" id="pricing">
             <div style={{ maxWidth: '720px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               <Badge tone="primary">Pricing</Badge>
               <h2 className="section-heading">Choose a track and scale at your pace</h2>

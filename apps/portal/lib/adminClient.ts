@@ -139,6 +139,13 @@ export async function storeCredentials(clientId: string, actor: string, payload:
   });
 }
 
+export async function deleteCredentials(clientId: string, exchangeName: string, actor: string) {
+  return adminRequest(`/clients/${clientId}/credentials/${exchangeName}`, {
+    method: 'DELETE',
+    actor,
+  });
+}
+
 export async function fetchStrategySecret(clientId: string, strategyId: string) {
   return adminRequest(`/clients/${clientId}/strategies/${strategyId}/secret`);
 }
@@ -471,6 +478,20 @@ export async function cancelSubscriptionForClient(payload: {
 
 export async function fetchClientHistory(clientId: string) {
   return adminRequest(`/clients/${clientId}/history`);
+}
+
+export async function fetchClientTrades(
+  clientId: string,
+  params: { limit?: number; cursor?: string | null; bot?: string | null; start?: string | null; end?: string | null } = {}
+) {
+  const search = new URLSearchParams();
+  if (params.limit) search.set('limit', String(params.limit));
+  if (params.cursor) search.set('cursor', params.cursor);
+  if (params.bot) search.set('bot', params.bot);
+  if (params.start) search.set('start', params.start);
+  if (params.end) search.set('end', params.end);
+  const query = search.toString();
+  return adminRequest(`/clients/${clientId}/trades${query ? `?${query}` : ''}`);
 }
 
 export async function fetchClientAgreements(clientId: string) {

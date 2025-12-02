@@ -12,9 +12,10 @@ export interface NavLink {
 
 const navLinks: NavLink[] = [
   { label: 'Overview', href: '/app' },
-  { label: 'Strategies', href: '/app/strategies' },
-  { label: 'Billing', href: '/app/billing' },
+  { label: 'Bots', href: '/app/bots' },
+  { label: 'Exchanges', href: '/app/exchanges' },
   { label: 'Activity', href: '/app/activity' },
+  { label: 'Billing', href: '/app/billing' },
   { label: 'Settings', href: '/app/settings' },
 ];
 
