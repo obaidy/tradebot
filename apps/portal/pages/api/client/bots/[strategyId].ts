@@ -4,26 +4,43 @@ import { authOptions } from '../../../../lib/authOptions';
 import { fetchClientPortfolio, fetchClientSnapshot, updateClientPortfolio } from '../../../../lib/adminClient';
 import { getSessionClientId } from '../../../../lib/sessionClient';
 
-function normalizeAllocations(portfolio: any) {
-  return (portfolio?.allocations ?? []).map((allocation: any) => ({
+type PortfolioAllocation = {
+  strategyId: string;
+  weightPct: number;
+  runMode: string | null;
+  maxRiskPct?: number | null;
+  enabled?: boolean;
+  config?: Record<string, unknown> | null;
+  updatedAt?: string | null;
+};
+
+type ClientPortfolio = {
+  allocations?: PortfolioAllocation[];
+};
+
+function normalizeAllocations(portfolio: ClientPortfolio | null): PortfolioAllocation[] {
+  const allocations = portfolio?.allocations ?? [];
+  return allocations.map((allocation) => ({
     strategyId: allocation.strategyId,
     weightPct: allocation.weightPct,
     maxRiskPct: allocation.maxRiskPct ?? null,
     runMode: allocation.runMode ?? null,
     enabled: allocation.enabled,
-    config: allocation.config ?? allocation.configJson ?? null,
+    config: allocation.config ?? null,
+    updatedAt: allocation.updatedAt ?? null,
   }));
 }
 
-async function saveAllocations(clientId: string, allocations: any[], actor: string) {
+async function saveAllocations(clientId: string, allocations: PortfolioAllocation[], actor: string) {
   await updateClientPortfolio(clientId, { allocations }, actor);
-  const nextPortfolio = await fetchClientPortfolio(clientId);
-  return (nextPortfolio?.allocations ?? []).map((allocation: any) => ({
+  const nextPortfolio = (await fetchClientPortfolio(clientId)) as ClientPortfolio | null;
+  const normalizedAllocations = nextPortfolio?.allocations ?? [];
+  return normalizedAllocations.map((allocation) => ({
     strategyId: allocation.strategyId,
     weightPct: allocation.weightPct,
-    runMode: allocation.runMode,
+    runMode: allocation.runMode ?? null,
     enabled: allocation.enabled,
-    config: allocation.config ?? allocation.configJson ?? null,
+    config: allocation.config ?? null,
     updatedAt: allocation.updatedAt ?? null,
   }));
 }
