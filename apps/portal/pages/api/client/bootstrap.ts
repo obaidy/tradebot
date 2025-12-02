@@ -44,10 +44,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.warn('[portal] init client failed', err);
   }
   try {
+    const snapshotPromise = safeCall<ClientSnapshot | null>(
+      fetchClientSnapshot(clientId) as Promise<ClientSnapshot>,
+      null
+    );
     const [plans, strategies, snapshot, portfolio, history, metrics] = await Promise.all([
       safeCall(fetchPlans(), []),
       safeCall(fetchStrategies(), []),
-      safeCall<ClientSnapshot | null>(fetchClientSnapshot(clientId), null),
+      snapshotPromise,
       safeCall(fetchClientPortfolio(clientId), null),
       safeCall(fetchClientHistory(clientId), null),
       safeCall(fetchMetrics(clientId), null),
