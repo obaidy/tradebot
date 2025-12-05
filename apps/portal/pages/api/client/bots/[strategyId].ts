@@ -61,7 +61,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'PATCH') {
     try {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-      const portfolio = await fetchClientPortfolio(clientId);
+      const portfolio = (await fetchClientPortfolio(clientId)) as ClientPortfolio | null;
       const allocations = normalizeAllocations(portfolio);
       const target = allocations.find((allocation) => allocation.strategyId === strategyId);
       if (!target) {
@@ -105,7 +105,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   if (req.method === 'DELETE') {
     try {
-      const portfolio = await fetchClientPortfolio(clientId);
+      const portfolio = (await fetchClientPortfolio(clientId)) as ClientPortfolio | null;
       const allocations = normalizeAllocations(portfolio).filter(
         (allocation) => allocation.strategyId !== strategyId
       );
