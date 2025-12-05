@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../../lib/authOptions';
 import { fetchClientPortfolio, fetchClientSnapshot, updateClientPortfolio } from '../../../../lib/adminClient';
 import { getSessionClientId } from '../../../../lib/sessionClient';
+import type { ClientSnapshot, PortfolioAllocation } from '../../../../types/portal';
 
 function computeWeightPct(allocationUsd: number, bankrollUsd: number) {
   if (!Number.isFinite(allocationUsd) || allocationUsd <= 0) return 0;
@@ -11,14 +12,14 @@ function computeWeightPct(allocationUsd: number, bankrollUsd: number) {
 }
 
 async function listBots(clientId: string) {
-  const portfolio = await fetchClientPortfolio(clientId);
+  const portfolio = (await fetchClientPortfolio(clientId)) as { allocations?: PortfolioAllocation[] } | null;
   const allocations = portfolio?.allocations ?? [];
-  return allocations.map((allocation: any) => ({
+  return allocations.map((allocation) => ({
     strategyId: allocation.strategyId,
     weightPct: allocation.weightPct,
-    runMode: allocation.runMode,
+    runMode: allocation.runMode ?? 'paper',
     enabled: allocation.enabled,
-    config: allocation.config ?? allocation.configJson ?? null,
+    config: allocation.config ?? null,
     updatedAt: allocation.updatedAt ?? null,
   }));
 }
@@ -60,14 +61,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         res.status(400).json({ error: 'allocation_invalid' });
         return;
       }
-      const snapshot = await fetchClientSnapshot(clientId);
+      const snapshot = (await fetchClientSnapshot(clientId)) as ClientSnapshot | null;
       const bankrollUsd =
         Number(((snapshot?.client?.limits ?? {}) as any)?.risk?.bankrollUsd) ||
         Number((snapshot?.client as any)?.bankrollUsd) ||
         1000;
       const weightPct = computeWeightPct(allocationUsd, bankrollUsd);
-      const portfolio = await fetchClientPortfolio(clientId);
-      const existing = (portfolio?.allocations ?? []).filter((allocation: any) => allocation.strategyId !== strategyId);
+      const portfolio = (await fetchClientPortfolio(clientId)) as { allocations?: PortfolioAllocation[] } | null;
+      const existing = (portfolio?.allocations ?? []).filter((allocation) => allocation.strategyId !== strategyId);
       const actor = session?.user?.email ?? clientId;
       const nextAllocations = [
         ...existing.map((allocation: any) => ({
@@ -103,4 +104,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   res.status(405).json({ error: 'method_not_allowed' });
 }
-
