@@ -13,38 +13,26 @@ const strategiesShowcase = [
   {
     id: 'grid',
     name: 'Grid Bot',
-    headline: 'Adaptive mean-reversion engine',
-    description:
-      'Deploy paper grids in minutes, auto-tune buy/sell levels with regime analysis, and graduate to live once telemetry signs off.',
-    plans: 'Starter · Pro',
-    highlights: ['Paper + Live', 'BTC / ETH / majors', 'Risk-guarded execution'],
-  },
-  {
-    id: 'mev',
-    name: 'MEV Arb Bot',
-    headline: 'Flashbots-powered sandwiching',
-    description:
-      'Monitor mainnet mempools, assemble private bundles, and dispatch through Flashbots with guard rails baked in.',
-    plans: 'Pro',
-    highlights: ['Flashbots relay ready', 'Live only', 'Private key isolation'],
-  },
-  {
-    id: 'momentum',
-    name: 'Momentum Scout',
-    headline: 'Trend-following with volatility filters',
-    description:
-      'Ride intraday breakouts while dynamic trailing stops and volatility guards protect against sharp reversals.',
-    plans: 'Pro (beta)',
-    highlights: ['Paper + Live', 'Multi-venue routing', 'Adaptive risk sizing'],
+    headline: 'Buy low, sell high on repeat',
+    description: 'Classic grid trading on BTC/USDT or ETH/USDT with guard rails and per-trade caps you control.',
+    plans: 'Paper · Starter · Pro',
+    highlights: ['Binance Spot', 'Paper + Live', 'Pause any time'],
   },
   {
     id: 'dca',
-    name: 'DCA Accumulator',
-    headline: 'Systematic dollar-cost averaging',
-    description:
-      'Automate treasury accumulation across majors with configurable cadence, slippage controls, and guardrail alerts.',
-    plans: 'Starter · Pro',
-    highlights: ['Paper + Live', 'Schedule based', 'Escalation alerts'],
+    name: 'DCA Bot',
+    headline: 'Automated dollar-cost averaging',
+    description: 'Pick a pair, choose your cadence, and let the bot accumulate while you monitor fills in the portal.',
+    plans: 'Paper · Starter · Pro',
+    highlights: ['Schedules or continuous', 'Paper-first', 'Ideal for treasury stacking'],
+  },
+  {
+    id: 'momentum',
+    name: 'Momentum Scout (beta)',
+    headline: 'Ride breakouts with tight stops',
+    description: 'A simple trend-following preset for users who want something spicier once they trust the grid/DCA flows.',
+    plans: 'Pro',
+    highlights: ['Beta access', 'Paper required', 'Opt-in risk'],
   },
 ];
 
@@ -275,21 +263,20 @@ export default function LandingPage() {
           <Section spacing="4rem 0">
             <div className="landing-split-grid">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <Badge tone="primary">Release pipeline, operationalized</Badge>
+                <Badge tone="primary">Built for retail traders</Badge>
                 <h2 className="section-heading" style={{ margin: 0 }}>
-                  From idea to live trading in a single workflow
+                  Everything you need to run Binance bots
                 </h2>
                 <p className="section-subheading" style={{ marginTop: '0.5rem' }}>
-                  We orchestrate walk-forward regressions, paper canaries, live promotion gates, billing automation, and audit
-                  logs out of the box. Launch, monitor, and adapt without duct tape.
+                  No enterprise fluff. Connect keys, start in paper, and keep an eye on performance from the same screen.
                 </p>
                 <div style={{ display: 'grid', gap: '1.3rem' }}>
                   {[
-                    'Set up strategy templates and guard policies',
-                    'Run automatic walk-forward regression suites per release',
-                    'Capture paper canary telemetry before human approval',
-                    'Promote live with one click once metrics sign off',
-                    'Monitor real-time dashboards and alerting queues',
+                    'Connect Binance API keys (withdrawals disabled) in under a minute.',
+                    'Pick Grid or DCA, set your allocation, and launch in paper mode first.',
+                    'Pause or resume from the dashboard whenever you want to change tactics.',
+                    'Track every fill and guard event in the Activity tab—no spreadsheets.',
+                    'Upgrade to live when you trust the results. No pressure, no lock-in.',
                   ].map((item) => (
                     <div key={item} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                       <Badge tone="primary" style={{ width: '2.5rem', justifyContent: 'center' }}>
@@ -301,30 +288,29 @@ export default function LandingPage() {
                 </div>
               </div>
               <Card className="landing-feature-card" style={{ gap: '1.25rem' }} hoverLift>
-                <Badge tone="neutral">Release readiness</Badge>
-                <h3 style={{ margin: 0, fontSize: '1.5rem' }}>Milestone 7 · Paper Canary Passed</h3>
+                <Badge tone="neutral">Transparency &amp; risk</Badge>
+                <h3 style={{ margin: 0, fontSize: '1.5rem' }}>Straight talk before you start</h3>
                 <div style={{ display: 'grid', gap: '1rem' }}>
                   {[
-                    { label: 'Walk-forward regression', status: 'passed', tone: 'success' },
-                    { label: 'Paper canary deployment', status: 'passed', tone: 'success' },
-                    { label: 'Live promotion gate', status: 'awaiting approval', tone: 'primary' },
-                    { label: 'Client comms prepared', status: 'ready', tone: 'neutral' },
+                    {
+                      label: 'No guaranteed profits',
+                      body: 'Every strategy can lose money. Use paper mode until you trust what you see.',
+                    },
+                    {
+                      label: 'You stay in control',
+                      body: 'We never get withdrawal access. Rotate or delete API keys whenever you want.',
+                    },
+                    {
+                      label: 'Simple billing',
+                      body: 'Flat monthly plans. No hidden spreads or “performance” fees.',
+                    },
                   ].map((item) => (
-                    <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <p style={{ margin: 0, fontWeight: 600 }}>{item.label}</p>
-                        <p style={{ margin: 0, fontSize: '0.8rem', color: '#94A3B8' }}>Automated checks complete</p>
-                      </div>
-                      <Badge tone={item.tone as any}>{item.status}</Badge>
+                    <div key={item.label}>
+                      <p style={{ margin: 0, fontWeight: 600 }}>{item.label}</p>
+                      <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: '#94A3B8' }}>{item.body}</p>
                     </div>
                   ))}
                 </div>
-                <Card glass={false} elevation="none" style={{ padding: '1rem', background: 'rgba(8,47,73,0.35)' }}>
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#38BDF8' }}>Next slot: Tuesday 14:00 UTC</p>
-                  <p style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', color: '#94A3B8' }}>
-                    Stakeholders notified. Paper run telemetry attached in release artefacts.
-                  </p>
-                </Card>
               </Card>
             </div>
           </Section>
@@ -333,24 +319,24 @@ export default function LandingPage() {
 
           <Section spacing="5rem 0" id="about" align="center">
             <div style={{ maxWidth: '820px', display: 'grid', gap: '1.5rem' }}>
-              <Badge tone="primary">About OctoBot</Badge>
-              <h2 className="section-heading">Built by operators, for operators</h2>
+              <Badge tone="primary">Why OctoBot</Badge>
+              <h2 className="section-heading">A small team shipping for other traders</h2>
               <p className="section-subheading" style={{ margin: '0 auto' }}>
-                We are an ops-obsessed team of ex-quant traders and SREs. Every feature ships after living in our own desks—telemetry, guard rails, billing, and release artefacts included.
+                We built OctoBot after getting tired of duct taping spreadsheets, shady bots, and paid signal groups. The goal is simple: one trustworthy place to run bots without giving up custody.
               </p>
               <div className="landing-feature-grid">
                 {[
                   {
-                    title: 'Operator-first design',
-                    body: 'Dashboards, alerts, and approvals mirror real desks so your team can adopt without retraining.',
+                    title: 'Retail-focused roadmap',
+                    body: 'We obsess over Binance Spot bots first. More venues and strategies come only after the core feels great.',
                   },
                   {
-                    title: 'Security baked in',
-                    body: 'Hardware key support, secret rotation, and private bundle routing keep keys off shared hosts.',
+                    title: 'Support that answers',
+                    body: 'No helpdesks or fake chat bots. Email us and a builder replies. Plain English, no sales scripts.',
                   },
                   {
-                    title: 'Human-in-the-loop',
-                    body: 'Promotion gates ensure no strategy graduates to live without explicit human approval.',
+                    title: 'Honest risk disclosures',
+                    body: 'We remind you that bots can lose money and we cannot touch withdrawals. If that scares you, good—it should.',
                   },
                 ].map((item) => (
                   <Card key={item.title} elevation="none" className="landing-feature-card">
@@ -385,8 +371,7 @@ export default function LandingPage() {
               <Badge tone="primary">Pricing</Badge>
               <h2 className="section-heading">Choose a track and scale at your pace</h2>
               <p className="section-subheading" style={{ margin: '0 auto' }}>
-                Transparent pricing with automated billing, release artefacts, and 24/7 telemetry included. No hidden maker/taker
-                spreads.
+                Straightforward plans. No maker/taker cuts, no performance fees, and you can cancel anytime.
               </p>
             </div>
             <div className="pricing-grid">
@@ -436,12 +421,11 @@ export default function LandingPage() {
                   Answers before you hit deploy
                 </h2>
                 <p className="section-subheading" style={{ marginTop: '0.5rem' }}>
-                  Need something deeper? Book a session with our operations team and we’ll tailor the onboarding journey to your
-                  desk.
+                  Need something deeper? Send us a note and we&apos;ll walk you through the setup.
                 </p>
                 <Link href="mailto:hello@octobot.ai" legacyBehavior>
                   <a>
-                    <Button variant="secondary">Talk to an Operator</Button>
+                    <Button variant="secondary">Email hello@octobot.ai</Button>
                   </a>
                 </Link>
               </div>
@@ -460,16 +444,16 @@ export default function LandingPage() {
             <Card glass hoverLift className="landing-cta-card" style={{ maxWidth: '780px', margin: '0 auto' }}>
               <div style={{ display: 'grid', gap: '1.5rem' }}>
                 <h2 className="section-heading" style={{ margin: 0 }}>
-                  Step into the command center
+                  Ready to let a bot trade for you?
                 </h2>
                 <p className="section-subheading" style={{ margin: '0 auto' }}>
-                  Monitor live strategies, edit guardrails, approve releases, and handle billing from a single workspace.
+                  Connect Binance, launch a paper bot, and watch it in the portal before you risk a single USDT.
                 </p>
                 <div className="landing-cta-card__actions">
-                  <Button>Join the Beta List</Button>
+                  <Button>Start in paper mode</Button>
                   <Link href="/legal/tos" legacyBehavior>
                     <a>
-                      <Button variant="secondary">View Compliance Docs</Button>
+                      <Button variant="secondary">Review the docs</Button>
                     </a>
                   </Link>
                 </div>

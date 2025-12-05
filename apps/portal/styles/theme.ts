@@ -47,28 +47,24 @@ export const layout = {
 
 export const callouts = {
   hero: {
-    headline: 'Connect your exchange. Pick a bot. Let it trade for you 24/7.',
-    subheadline:
-      'Bring your own Binance API keys, choose a grid or DCA template, and monitor every fill from the same place. You stay in control of deposits and withdrawals.',
+    headline: 'Automated crypto bots that trade for you 24/7.',
+    subheadline: 'Works with Binance. Start in paper mode, go live when you are ready.',
     primaryCta: 'Open the portal',
     secondaryCta: 'Browse bots',
     trustBadges: ['Self-custody keys', 'Paper + live modes', 'Transparent trade log'],
   },
   featureSections: [
     {
-      title: 'Adaptive Tentacles',
-      description:
-        'Each limb tunes risk in real time with regime analysis, volatility guards, and intelligent kill switches that surface before drift hits PnL.',
+      title: 'Self custody',
+      description: 'API keys stay on your exchange account. Withdrawals remain disabled and you can revoke access any time.',
     },
     {
-      title: 'Paper-to-Live Tide',
-      description:
-        'Walk-forward regressions, automated paper canaries, and human promotion gates keep every promotion traceable from first splash to live waters.',
+      title: 'Paper-first launch',
+      description: 'Every bot starts in paper mode so you can watch behavior before putting real USDT behind it.',
     },
     {
-      title: 'Ops Reef',
-      description:
-        'Unified telemetry dashboards, client workflows, billing automation, and on-call tooling that keep operators in control of every tentacle.',
+      title: 'Simple telemetry',
+      description: 'Track PnL, trades, and alerts from one dashboard instead of juggling spreadsheets and screenshots.',
     },
   ],
 };
@@ -78,54 +74,28 @@ export const pricingPlans = [
     name: 'Paper',
     price: '$0',
     cadence: 'per month',
-    highlight: 'Perfect for exploratory deep dives',
-    features: ['Unlimited paper pods', 'Walk-forward tide reports', 'Alert integrations', 'Release artefact archive'],
-    cta: 'Swim in Paper',
+    highlight: 'Practice with simulated capital',
+    features: ['Unlimited paper bots', '24/7 activity log', 'Email alerts when bots pause'],
+    cta: 'Start in paper',
+    popular: false,
+  },
+  {
+    name: 'Starter',
+    price: '$29',
+    cadence: 'per month',
+    highlight: 'First live bot + modest caps',
+    features: ['1 live bot', 'Up to $1k allocation', 'Pause/Resume from dashboard', 'Support by email'],
+    cta: 'Upgrade to Starter',
     popular: false,
   },
   {
     name: 'Pro',
-    price: '$149',
+    price: '$79',
     cadence: 'per month',
-    highlight: 'All eight arms unlocked for live execution',
-    features: [
-      'Live promotion gates',
-      'Multi-exchange credentials',
-      'Ops reef command center',
-      'Priority pod support',
-    ],
+    highlight: 'Multiple bots, higher limits',
+    features: ['Up to 5 live bots', 'Higher allocation caps', 'Priority pause alerts', 'Early access to new strategies'],
     cta: 'Upgrade to Pro',
     popular: true,
-  },
-  {
-    name: 'Institutional',
-    price: 'Let’s talk',
-    cadence: 'custom retainers',
-    highlight: 'Tailored deployments & white-glove coverage',
-    features: ['Dedicated reef cluster', '24/7 incident hotline', 'Custom guard policies', 'Private signal integrations'],
-    cta: 'Book a Strategy Call',
-    popular: false,
-  },
-];
-
-export const testimonials = [
-  {
-    quote:
-      'Paper-to-live is finally one workflow. We ship grid updates twice a week and the guard rails catch issues before our capital ever feels them.',
-    name: 'Lina Park',
-    role: 'Head of Digital Assets, Northwind Capital',
-  },
-  {
-    quote:
-      'The telemetry cockpit and release artefacts make investor reporting a non-event. We have audit logs for every switch flip.',
-    name: 'Matteo Ricci',
-    role: 'COO, Meridian Alpha',
-  },
-  {
-    quote:
-      'We onboarded 40+ traders without engineering churn. Stripe billing, KYC hooks, and multi-venue grids just work.',
-    name: 'Priya Desai',
-    role: 'Founder, Horizon Quant Club',
   },
 ];
 
@@ -158,7 +128,6 @@ export const theme = {
   layout,
   callouts,
   pricingPlans,
-  testimonials,
   faqItems,
 };
 
