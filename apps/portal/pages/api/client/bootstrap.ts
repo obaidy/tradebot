@@ -72,7 +72,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       history,
       metrics,
       bots,
-      bots,
       needsOnboarding: credentialCount === 0,
       hasActiveBots,
     });
