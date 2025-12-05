@@ -87,11 +87,25 @@ export type ClientSnapshot = {
   }>;
 };
 
+export type ClientBot = {
+  id: string;
+  clientId?: string;
+  templateKey: string;
+  exchangeName: string;
+  symbol: string;
+  mode: string;
+  status: string;
+  config?: Record<string, any> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type PortalBootstrap = {
   plans: Plan[];
   strategies: StrategySummary[];
   snapshot: ClientSnapshot | null;
   portfolio: { allocations?: PortfolioAllocation[]; plan?: PortfolioPlan | null } | null;
+  bots: ClientBot[];
   history: {
     runs?: Array<{
       runId: string;
@@ -110,4 +124,3 @@ export type PortalBootstrap = {
   needsOnboarding: boolean;
   hasActiveBots: boolean;
 };
-

@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/Button';
 import { Sparkline } from '../../components/ui/Sparkline';
 import { palette } from '../../styles/theme';
 import { usePortalData } from '../../hooks/usePortalData';
-import type { PortalBootstrap, PortfolioAllocation } from '../../types/portal';
+import type { ClientBot, PortalBootstrap } from '../../types/portal';
 
 type TradesSummary = {
   loading: boolean;
@@ -17,20 +17,16 @@ type TradesSummary = {
 };
 
 function computeAllocationUsd(data: PortalBootstrap | undefined | null) {
-  const entries = data?.portfolio?.plan?.entries ?? [];
-  if (entries.length) {
-    return entries.filter((entry) => entry.enabled).reduce((sum, entry) => sum + (entry.allocationUsd || 0), 0);
-  }
-  const allocations = data?.portfolio?.allocations ?? [];
-  return allocations
-    .filter((allocation) => allocation.enabled)
-    .reduce((sum, allocation) => sum + Number(allocation.config?.allocationUsd ?? 0), 0);
+  const bots = data?.bots ?? [];
+  return bots
+    .filter((bot) => bot.status === 'active')
+    .reduce((sum, bot) => sum + Number(bot.config?.allocationUsd ?? 0), 0);
 }
 
-function countModes(allocations: PortfolioAllocation[]) {
+function countModes(bots: ClientBot[]) {
   const stats = { live: 0, paper: 0 };
-  allocations.forEach((allocation) => {
-    const mode = (allocation.config?.mode ?? allocation.runMode ?? 'paper') as 'live' | 'paper';
+  bots.forEach((bot) => {
+    const mode = (bot.mode ?? 'paper') as 'live' | 'paper';
     if (mode === 'live') stats.live += 1;
     else stats.paper += 1;
   });
@@ -50,13 +46,10 @@ export default function OverviewPage() {
   const { data, loading, error, refresh } = usePortalData({ enabled: status === 'authenticated' });
   const [tradesSummary, setTradesSummary] = useState<TradesSummary>({ loading: true, value: 0 });
 
-  const activeAllocations = useMemo(
-    () => (data?.portfolio?.allocations ?? []).filter((allocation) => allocation.enabled),
-    [data?.portfolio?.allocations]
-  );
+  const activeBots = useMemo(() => (data?.bots ?? []).filter((bot) => bot.status === 'active'), [data?.bots]);
 
   const allocationUsd = useMemo(() => computeAllocationUsd(data), [data]);
-  const modeCounts = useMemo(() => countModes(activeAllocations), [activeAllocations]);
+  const modeCounts = useMemo(() => countModes(activeBots), [activeBots]);
 
   useEffect(() => {
     if (status !== 'authenticated') return;
@@ -92,11 +85,11 @@ export default function OverviewPage() {
   const pnlHistory = useMemo(() => {
     const series = data?.metrics?.pnl?.history ?? [];
     if (series.length) return series;
-    return activeAllocations.length ? activeAllocations.map((_allocation, index) => index * 5) : [];
-  }, [data?.metrics?.pnl?.history, activeAllocations]);
+    return activeBots.length ? activeBots.map((_bot, index) => index * 5) : [];
+  }, [data?.metrics?.pnl?.history, activeBots]);
 
   const needsExchange = (data?.snapshot?.credentials?.length ?? 0) === 0;
-  const needsBot = activeAllocations.length === 0;
+  const needsBot = activeBots.length === 0;
 
   const recentRuns = useMemo(() => {
     return (data?.history?.runs ?? []).slice(0, 5);
@@ -134,7 +127,7 @@ export default function OverviewPage() {
           <Card>
             <p style={{ margin: 0, color: palette.textSecondary }}>Total allocated capital</p>
             <h2 style={{ margin: '0.35rem 0 0', fontSize: '2rem' }}>{loading ? '—' : formatUsd(allocationUsd)}</h2>
-            <p style={{ margin: '0.35rem 0 0', color: palette.textMuted }}>Active bots: {activeAllocations.length}</p>
+            <p style={{ margin: '0.35rem 0 0', color: palette.textMuted }}>Active bots: {activeBots.length}</p>
           </Card>
           <Card>
             <p style={{ margin: 0, color: palette.textSecondary }}>24h PnL</p>

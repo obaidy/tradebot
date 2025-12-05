@@ -770,6 +770,7 @@ export interface OrderExecutionContext {
   pendingTpPromises?: Promise<void>[];
   limiter?: RateLimiter;
   fetchTicker?: () => Promise<ExchangeTickerWithMeta>;
+  clientBotId?: string | null;
 }
 
 function buildTickerFetcher(context: OrderExecutionContext): () => Promise<ExchangeTickerWithMeta> {
@@ -1124,6 +1125,7 @@ async function placeAndMonitorOrder(
         side: 'buy',
         fillTimestamp: updated.timestamp ? new Date(updated.timestamp) : new Date(),
         raw: updated as any,
+        clientBotId: context.clientBotId ?? null,
       });
       fillCounter.labels(context.clientId, 'buy').inc(delta);
       circuitBreaker.recordFill('buy', lastFillPrice, delta, updated.fee?.cost ?? 0);
@@ -1524,6 +1526,7 @@ async function monitorSellOrder(params: {
         side: 'sell',
         fillTimestamp: updated.timestamp ? new Date(updated.timestamp) : new Date(),
         raw: updated as any,
+        clientBotId: context.clientBotId ?? null,
       });
       fillCounter.labels(context.clientId, 'sell').inc(delta);
       circuitBreaker.recordFill('sell', updated.average ?? updated.price ?? initialPrice, delta, updated.fee?.cost ?? 0);
@@ -1897,6 +1900,7 @@ export interface RunGridOptions {
   summaryOnly?: boolean;
   actor?: string;
   configOverrides?: Record<string, unknown>;
+  clientBotId?: string | null;
 }
 
 export async function runGridOnce(
@@ -3014,6 +3018,7 @@ export async function runGridOnce(
     pendingTpPromises: [],
     limiter: sharedLimiter,
     fetchTicker: () => realtimeTickerFetcher(),
+    clientBotId: options.clientBotId ?? null,
   };
 
   const existingSellOrders = await ordersRepo.getOpenOrdersForRun(plan.runId, 'sell');

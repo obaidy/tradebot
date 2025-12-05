@@ -38,7 +38,11 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         const typedToken = token as JWT & { email?: string };
         const email = typedToken.email ?? session.user.email ?? null;
-        session.user.id = email ?? token.sub ?? session.user.email ?? '';
+        const subject = typeof token.sub === 'string' && token.sub.length > 0 ? token.sub : null;
+        session.user.id = subject ?? email ?? session.user.email ?? '';
+        if (email) {
+          session.user.email = email;
+        }
       }
       return session;
     },

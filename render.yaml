@@ -111,3 +111,24 @@ services:
         sync: false
       - key: CLIENT_MASTER_KEY
         sync: false
+  - type: worker
+    name: tradebot-bot-runner
+    env: node
+    plan: starter
+    region: oregon
+    autoDeploy: true
+    buildCommand: npm install && npm run build
+    startCommand: npm run worker
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
+      - key: NODE_ENV
+        value: production
+      - key: DEFAULT_EXCHANGE
+        value: binance
+      - key: PG_URL
+        sync: false
+      - key: ALLOW_LIVE
+        value: "false"

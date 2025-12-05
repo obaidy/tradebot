@@ -7,12 +7,14 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { palette } from '../../styles/theme';
 import { usePortalData } from '../../hooks/usePortalData';
+import type { ClientBot } from '../../types/portal';
 
 type TradeRow = {
   id: number;
   timestamp: string;
   bot: string;
   strategyId: string;
+  clientBotId?: string | null;
   pair: string;
   side: string;
   amount: number;
@@ -35,7 +37,7 @@ export default function ActivityPage() {
     end: '',
   });
 
-  const bots = useMemo(() => data?.portfolio?.allocations ?? [], [data?.portfolio?.allocations]);
+  const bots = useMemo<ClientBot[]>(() => data?.bots ?? [], [data?.bots]);
 
   async function loadTrades(reset = false) {
     try {
@@ -103,8 +105,8 @@ export default function ActivityPage() {
           >
             <option value="">All</option>
             {bots.map((bot) => (
-              <option key={bot.strategyId} value={bot.strategyId}>
-                {bot.strategyId}
+              <option key={bot.id} value={bot.id}>
+                {bot.templateKey.toUpperCase()} · {bot.symbol}
               </option>
             ))}
           </select>
@@ -163,7 +165,7 @@ export default function ActivityPage() {
               trades.map((trade) => (
                 <tr key={`${trade.id}-${trade.timestamp}`}>
                   <td style={{ padding: '0.6rem 0' }}>{new Date(trade.timestamp).toLocaleString()}</td>
-                  <td>{trade.bot}</td>
+                  <td>{trade.clientBotId ?? trade.bot}</td>
                   <td>{trade.pair}</td>
                   <td>
                     <Badge tone={trade.side === 'SELL' ? 'warning' : 'secondary'}>{trade.side}</Badge>
@@ -192,4 +194,3 @@ export default function ActivityPage() {
     </DashboardLayout>
   );
 }
-

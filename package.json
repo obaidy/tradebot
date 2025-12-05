@@ -33,7 +33,9 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "db:fix-client": "ts-node scripts/fixClientId.ts",
-    "report:telemetry": "ts-node scripts/reportTelemetry.ts"
+    "report:telemetry": "ts-node scripts/reportTelemetry.ts",
+    "worker": "node dist/worker.js",
+    "worker:dev": "ts-node src/worker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.893.0",

@@ -487,6 +487,66 @@ export async function fetchClientHistory(clientId: string) {
   return adminRequest(`/clients/${clientId}/history`);
 }
 
+export interface ClientBot {
+  id: string;
+  clientId: string;
+  templateKey: string;
+  exchangeName: string;
+  symbol: string;
+  mode: string;
+  status: string;
+  config: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchClientBots(clientId: string): Promise<ClientBot[]> {
+  const res = await adminRequest<{ bots: ClientBot[] }>(`/clients/${clientId}/bots`);
+  return res?.bots ?? [];
+}
+
+export async function createClientBot(
+  clientId: string,
+  actor: string,
+  payload: { templateKey: string; symbol: string; mode: string; exchangeName?: string; config?: Record<string, unknown> | null }
+) {
+  return adminRequest(`/clients/${clientId}/bots`, {
+    method: 'POST',
+    body: JSON.stringify({
+      templateKey: payload.templateKey,
+      exchangeName: payload.exchangeName ?? 'binance',
+      symbol: payload.symbol,
+      mode: payload.mode,
+      config: payload.config ?? null,
+    }),
+    actor,
+  });
+}
+
+export async function updateClientBot(
+  clientId: string,
+  botId: string,
+  actor: string,
+  patch: { status?: string; mode?: string; config?: Record<string, unknown> | null }
+) {
+  return adminRequest(`/clients/${clientId}/bots/${botId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+    actor,
+  });
+}
+
+export async function deleteClientBot(clientId: string, botId: string, actor: string) {
+  return adminRequest(`/clients/${clientId}/bots/${botId}`, {
+    method: 'DELETE',
+    actor,
+  });
+}
+
+export async function fetchClientBotEvents(clientId: string, botId: string, limit = 50) {
+  return adminRequest(`/clients/${clientId}/bots/${botId}/events?limit=${limit}`);
+}
+
 export async function fetchClientTrades(
   clientId: string,
   params: { limit?: number; cursor?: string | null; bot?: string | null; start?: string | null; end?: string | null } = {}

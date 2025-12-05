@@ -22,7 +22,7 @@ export default function OnboardingPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const hasExchange = (data?.snapshot?.credentials ?? []).length > 0;
-  const hasBot = (data?.portfolio?.allocations ?? []).some((allocation) => allocation.enabled);
+  const hasBot = (data?.bots ?? []).some((bot) => bot.status === 'active');
 
   useEffect(() => {
     if (hasBot) {
@@ -192,4 +192,3 @@ export default function OnboardingPage() {
     </div>
   );
 }
-

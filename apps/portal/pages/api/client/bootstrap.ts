@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/authOptions';
 import {
+  fetchClientBots,
   fetchClientHistory,
   fetchClientPortfolio,
   fetchClientSnapshot,
@@ -10,7 +11,7 @@ import {
   fetchStrategies,
   initClient,
 } from '../../../lib/adminClient';
-import type { ClientSnapshot, PortfolioAllocation } from '../../../types/portal';
+import type { ClientSnapshot, PortfolioAllocation, ClientBot } from '../../../types/portal';
 import { getSessionClientId } from '../../../lib/sessionClient';
 
 async function safeCall<T>(promise: Promise<T>, fallback: T): Promise<T> {
@@ -48,20 +49,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       fetchClientSnapshot(clientId) as Promise<ClientSnapshot>,
       null
     );
-    const [plans, strategies, snapshot, portfolio, history, metrics] = await Promise.all([
+    const [plans, strategies, snapshot, portfolio, history, metrics, bots] = await Promise.all([
       safeCall(fetchPlans(), []),
       safeCall(fetchStrategies(), []),
       snapshotPromise,
       safeCall(fetchClientPortfolio(clientId), null),
       safeCall(fetchClientHistory(clientId), null),
       safeCall(fetchMetrics(clientId), null),
+      safeCall<ClientBot[]>(fetchClientBots(clientId), []),
     ]);
     const credentialCount = snapshot?.credentials?.length ?? 0;
     const portfolioData = portfolio && typeof portfolio === 'object' ? (portfolio as Record<string, unknown>) : null;
     const allocations: PortfolioAllocation[] = Array.isArray((portfolioData as any)?.allocations)
       ? ((portfolioData as any).allocations as PortfolioAllocation[])
       : [];
-    const hasActiveBots = allocations.some((allocation) => allocation.enabled);
+    const hasActiveBots = bots.some((bot) => bot.status === 'active');
     res.status(200).json({
       plans,
       strategies,
@@ -69,6 +71,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       portfolio: portfolioData ? { ...portfolioData, allocations } : { allocations },
       history,
       metrics,
+      bots,
+      bots,
       needsOnboarding: credentialCount === 0,
       hasActiveBots,
     });

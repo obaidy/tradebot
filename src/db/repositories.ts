@@ -50,6 +50,7 @@ export interface InsertFillInput {
   side: 'buy' | 'sell';
   fillTimestamp?: Date;
   raw?: Record<string, unknown> | null;
+  clientBotId?: string | null;
 }
 
 export interface InventorySnapshotInput {
@@ -245,8 +246,8 @@ export class FillsRepository {
 
   async insertFill(input: InsertFillInput) {
     const res = await this.pool.query(
-      `INSERT INTO bot_fills (order_id, run_id, client_id, pair, price, amount, fee, side, fill_timestamp, raw)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      `INSERT INTO bot_fills (order_id, run_id, client_id, pair, price, amount, fee, side, fill_timestamp, raw, client_bot_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         input.orderId,
@@ -259,6 +260,7 @@ export class FillsRepository {
         input.side,
         input.fillTimestamp ?? new Date(),
         input.raw ?? null,
+        input.clientBotId ?? null,
       ]
     );
     return res.rows[0];

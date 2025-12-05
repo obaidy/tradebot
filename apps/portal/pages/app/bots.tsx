@@ -8,7 +8,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { palette } from '../../styles/theme';
 import { usePortalData } from '../../hooks/usePortalData';
-import type { PortfolioAllocation, StrategySummary } from '../../types/portal';
+import type { ClientBot, StrategySummary } from '../../types/portal';
 
 type Tab = 'available' | 'my';
 
@@ -52,7 +52,7 @@ export default function BotsPage() {
   const [totalBotPnl, setTotalBotPnl] = useState<Record<string, number>>({});
 
   const strategies = useMemo(() => data?.strategies ?? [], [data?.strategies]);
-  const bots = useMemo(() => data?.portfolio?.allocations ?? [], [data?.portfolio?.allocations]);
+  const bots = useMemo(() => data?.bots ?? [], [data?.bots]);
 
   useEffect(() => {
     const totals: Record<string, number> = {};
@@ -60,42 +60,54 @@ export default function BotsPage() {
       if (!run.strategyId) return;
       totals[run.strategyId] = (totals[run.strategyId] ?? 0) + (Number(run.estNetProfit) || 0);
     });
+    const botsByTemplate = new Map((data?.bots ?? []).map((bot) => [bot.templateKey, bot]));
+    Object.entries(totals).forEach(([templateKey, value]) => {
+      const matching = botsByTemplate.get(templateKey);
+      if (matching) {
+        totals[matching.id] = value;
+      }
+    });
     setTotalBotPnl(totals);
-  }, [data?.history?.runs]);
+  }, [data?.history?.runs, data?.bots]);
 
   useEffect(() => {
     let cancelled = false;
     async function loadPnl() {
-      const enabledBots = (data?.portfolio?.allocations ?? []).filter((allocation) => allocation.enabled);
+      const enabledBots = (data?.bots ?? []).filter((bot) => bot.status === 'active');
       if (!enabledBots.length) {
         setBotPnl24h({});
         return;
       }
       const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const entries = await Promise.all(
-        enabledBots.map(async (allocation) => {
+        enabledBots.map(async (bot) => {
           try {
             const res = await fetch(
-              `/api/client/trades?start=${encodeURIComponent(start)}&bot=${encodeURIComponent(allocation.strategyId)}`
+              `/api/client/trades?start=${encodeURIComponent(start)}&bot=${encodeURIComponent(bot.id)}`
             );
             if (!res.ok) {
-              return [allocation.strategyId, 0] as const;
+              return [bot.id, 0] as const;
             }
             const payload = await res.json();
             const sum = Array.isArray(payload.items)
               ? payload.items.reduce((acc: number, trade: any) => acc + Number(trade.pnlUsd ?? 0), 0)
               : 0;
-            return [allocation.strategyId, sum] as const;
+            return [bot.id, sum] as const;
           } catch (err) {
             console.warn('[portal] bot pnl load failed', err);
-            return [allocation.strategyId, 0] as const;
+            return [bot.id, 0] as const;
           }
         })
       );
       if (!cancelled) {
         const map: Record<string, number> = {};
+        const botIndex = new Map(enabledBots.map((bot) => [bot.id, bot]));
         entries.forEach(([key, value]) => {
           map[key] = value;
+          const linked = botIndex.get(key);
+          if (linked) {
+            map[linked.templateKey] = value;
+          }
         });
         setBotPnl24h(map);
       }
@@ -104,7 +116,7 @@ export default function BotsPage() {
     return () => {
       cancelled = true;
     };
-  }, [data?.portfolio?.allocations]);
+  }, [data?.bots]);
 
   function openConfig(strategyId: string) {
     const pairs = getPairs(strategyId);
@@ -148,12 +160,13 @@ export default function BotsPage() {
     }
   }
 
-  async function handleToggleBot(allocation: PortfolioAllocation, enabled: boolean) {
+  async function handleToggleBot(bot: ClientBot) {
+    const nextStatus = bot.status === 'active' ? 'paused' : 'active';
     try {
-      const res = await fetch(`/api/client/bots/${allocation.strategyId}`, {
+      const res = await fetch(`/api/client/bots/${bot.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify({ status: nextStatus }),
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
@@ -235,16 +248,28 @@ export default function BotsPage() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {bots.map((bot) => {
-                const pnl24 = botPnl24h[bot.strategyId];
-                const totalPnl = totalBotPnl[bot.strategyId];
-                const mode = (bot.config?.mode ?? bot.runMode ?? 'paper') as 'paper' | 'live';
+                const pnl24 = botPnl24h[bot.id] ?? botPnl24h[bot.templateKey] ?? 0;
+                const totalPnl = totalBotPnl[bot.id] ?? totalBotPnl[bot.templateKey] ?? 0;
+                const mode = (bot.mode ?? 'paper') as 'paper' | 'live';
+                const pair = typeof bot.config?.pair === 'string' ? bot.config?.pair : bot.symbol;
+                const allocationDisplay = formatUsd(
+                  typeof bot.config?.allocationUsd === 'number'
+                    ? bot.config.allocationUsd
+                    : Number(bot.config?.allocationUsd ?? 0)
+                );
+                const statusTone = bot.status === 'active' ? 'success' : bot.status === 'paused' ? 'warning' : 'neutral';
                 return (
-                  <Card key={bot.strategyId} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '1rem' }}>
+                  <Card key={bot.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: '1rem' }}>
                     <div>
-                      <p style={{ margin: 0, fontWeight: 600 }}>{bot.strategyId}</p>
+                      <p style={{ margin: 0, fontWeight: 600 }}>{bot.templateKey.toUpperCase()}</p>
                       <p style={{ margin: '0.25rem 0 0', color: palette.textSecondary }}>
-                        Pair: {bot.config?.pair ?? '—'} · Mode: {mode}
+                        Pair: {pair ?? '—'} · Mode: {mode}
                       </p>
+                      <p style={{ margin: '0.15rem 0 0', color: palette.textSecondary }}>Allocation: {allocationDisplay}</p>
+                    </div>
+                    <div>
+                      <p style={{ margin: 0, color: palette.textSecondary }}>Status</p>
+                      <Badge tone={statusTone}>{bot.status}</Badge>
                     </div>
                     <div>
                       <p style={{ margin: 0, color: palette.textSecondary }}>24h PnL</p>
@@ -255,10 +280,10 @@ export default function BotsPage() {
                       <p style={{ margin: '0.25rem 0 0' }}>{formatUsd(totalPnl)}</p>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      <Button variant="secondary" onClick={() => handleToggleBot(bot, !bot.enabled)}>
-                        {bot.enabled ? 'Pause' : 'Resume'}
+                      <Button variant="secondary" onClick={() => handleToggleBot(bot)}>
+                        {bot.status === 'active' ? 'Pause' : 'Resume'}
                       </Button>
-                      <Link href={`/app/activity?bot=${encodeURIComponent(bot.strategyId)}`} legacyBehavior>
+                      <Link href={`/app/activity?bot=${encodeURIComponent(bot.id)}`} legacyBehavior>
                         <a style={{ fontSize: '0.85rem', color: palette.primary }}>View</a>
                       </Link>
                     </div>
@@ -325,19 +350,10 @@ export default function BotsPage() {
                 style={{ padding: '0.5rem', borderRadius: '8px' }}
               />
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <span>Mode</span>
-              <select
-                value={configModal.mode}
-                onChange={(event) =>
-                  setConfigModal((prev) => (prev ? { ...prev, mode: event.target.value as 'paper' | 'live' } : prev))
-                }
-                style={{ padding: '0.5rem', borderRadius: '8px' }}
-              >
-                <option value="paper">Paper</option>
-                <option value="live">Live</option>
-              </select>
-            </label>
+            <div>
+              <span style={{ display: 'block', marginBottom: '0.25rem' }}>Mode</span>
+              <p style={{ margin: 0, color: palette.textSecondary }}>Paper (live coming soon)</p>
+            </div>
             <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               <span>Risk preset</span>
               <select
@@ -369,4 +385,3 @@ export default function BotsPage() {
     </DashboardLayout>
   );
 }
-

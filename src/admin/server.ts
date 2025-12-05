@@ -13,6 +13,8 @@ import {
   ClientStrategySecretsRepository,
 } from '../db/clientsRepo';
 import { ClientStrategyAllocationsRepository } from '../db/clientStrategyAllocationsRepo';
+import { ClientBotsRepository, BotStatus } from '../db/clientBotsRepo';
+import { ClientBotEventsRepository } from '../db/clientBotEventsRepo';
 import { ClientConfigService } from '../services/clientConfig';
 import { initSecretManager } from '../secrets/secretManager';
 import { ClientAuditLogRepository } from '../db/auditLogRepo';
@@ -60,7 +62,7 @@ import {
 } from '../db/socialTradingRepo';
 import { createMobileIntegration } from '../mobile/server';
 
-type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
+type Method = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
 interface AdminServerOptions {
   port?: number;
@@ -202,6 +204,8 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
   const credsRepo = new ClientApiCredentialsRepository(pool);
   const strategySecretsRepo = new ClientStrategySecretsRepository(pool);
   const strategyAllocationsRepo = new ClientStrategyAllocationsRepository(pool);
+  const clientBotsRepo = new ClientBotsRepository(pool);
+  const clientBotEventsRepo = new ClientBotEventsRepository(pool);
   const configService = new ClientConfigService(pool);
   const auditRepo = new ClientAuditLogRepository(pool);
   const workersRepo = new ClientWorkersRepository(pool);
@@ -1135,7 +1139,10 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
           }
           if (botFilter) {
             params.push(botFilter);
-            where.push(`COALESCE(r.params_json->>'strategyId', r.params_json->>'strategy_id') = $${params.length}`);
+            const lastIndex = params.length;
+            where.push(
+              `(COALESCE(r.params_json->>'strategyId', r.params_json->>'strategy_id') = $${lastIndex} OR f.client_bot_id = $${lastIndex})`
+            );
           }
           if (cursorParam) {
             const [tsPart, idPart] = cursorParam.split('_');
@@ -1159,6 +1166,7 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
               f.fee::float AS fee,
               f.side,
               f.fill_timestamp,
+              f.client_bot_id,
               r.exchange,
               r.params_json,
               (r.params_json->>'runMode') AS db_run_mode
@@ -1228,7 +1236,9 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
               (typeof paramsJson.strategyId === 'string' && paramsJson.strategyId) ||
               (typeof paramsJson.strategy_id === 'string' && paramsJson.strategy_id) ||
               null;
+            const clientBotId = typeof row.client_bot_id === 'string' ? row.client_bot_id : null;
             const botLabel =
+              clientBotId ||
               (typeof paramsJson.strategyName === 'string' && paramsJson.strategyName) ||
               (typeof paramsJson.summary?.strategyName === 'string' && paramsJson.summary.strategyName) ||
               strategyId;
@@ -1244,6 +1254,7 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
               runId: row.run_id,
               bot: botLabel ?? 'Bot',
               strategyId,
+              clientBotId,
               pair: row.pair,
               side: String(row.side || '').toUpperCase(),
               price: Number(row.price) || 0,
@@ -1365,6 +1376,110 @@ export async function startAdminServer(options: AdminServerOptions = {}) {
             totalWeightPct,
             plan,
           });
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const clientBotsMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/bots$/);
+      if (clientBotsMatch) {
+        const clientId = decodeURIComponent(clientBotsMatch[1]);
+        if (ctx.method === 'GET') {
+          const bots = await clientBotsRepo.listByClient(clientId);
+          sendJson(res, 200, { bots });
+          return;
+        }
+        if (ctx.method === 'POST') {
+          const body = ctx.body ?? {};
+          const templateKey = String(body.templateKey ?? body.template_key ?? 'grid').toLowerCase();
+          const exchangeName = String(body.exchangeName ?? body.exchange_name ?? 'binance');
+          const symbol = String(body.symbol ?? body.pair ?? 'BTCUSDT');
+          const mode = body.mode === 'live' ? 'live' : 'paper';
+          const status: BotStatus = (body.status ?? 'active') as BotStatus;
+          const config = body.config && typeof body.config === 'object' ? body.config : null;
+          const bot = await clientBotsRepo.create({
+            clientId,
+            templateKey,
+            exchangeName,
+            symbol,
+            mode,
+            status,
+            config,
+          });
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'client_bot_created',
+            metadata: { botId: bot.id, templateKey: bot.templateKey },
+          });
+          sendJson(res, 201, bot);
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const clientBotDetailMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/bots\/([^/]+)$/);
+      if (clientBotDetailMatch) {
+        const clientId = decodeURIComponent(clientBotDetailMatch[1]);
+        const botId = decodeURIComponent(clientBotDetailMatch[2]);
+        const bot = await clientBotsRepo.findById(botId);
+        if (!bot || bot.clientId !== clientId) {
+          notFound(res);
+          return;
+        }
+        if (ctx.method === 'PATCH') {
+          const body = ctx.body ?? {};
+          const patch: Record<string, unknown> = {};
+          if (body.status) {
+            patch.status = body.status as BotStatus;
+          }
+          if (body.mode) {
+            patch.mode = body.mode === 'live' ? 'live' : 'paper';
+          }
+          if (body.config !== undefined) {
+            patch.config = body.config && typeof body.config === 'object' ? body.config : null;
+          }
+          if (body.symbol) patch.symbol = body.symbol;
+          if (body.exchangeName || body.exchange_name) patch.exchangeName = body.exchangeName ?? body.exchange_name;
+          const updated = await clientBotsRepo.update(botId, patch);
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'client_bot_updated',
+            metadata: { botId, changes: Object.keys(patch) },
+          });
+          sendJson(res, 200, updated);
+          return;
+        }
+        if (ctx.method === 'DELETE') {
+          await clientBotsRepo.update(botId, { status: 'stopped' });
+          await auditRepo.addEntry({
+            clientId,
+            actor: resolveActor(ctx.req),
+            action: 'client_bot_deleted',
+            metadata: { botId },
+          });
+          sendJson(res, 204, {});
+          return;
+        }
+        methodNotAllowed(res);
+        return;
+      }
+
+      const botEventsMatch = ctx.pathname.match(/^\/clients\/([^/]+)\/bots\/([^/]+)\/events$/);
+      if (botEventsMatch) {
+        const clientId = decodeURIComponent(botEventsMatch[1]);
+        const botId = decodeURIComponent(botEventsMatch[2]);
+        const bot = await clientBotsRepo.findById(botId);
+        if (!bot || bot.clientId !== clientId) {
+          notFound(res);
+          return;
+        }
+        if (ctx.method === 'GET') {
+          const events = await clientBotEventsRepo.listByBot(botId, Number(ctx.query.get('limit') || '50'));
+          sendJson(res, 200, { events });
           return;
         }
         methodNotAllowed(res);

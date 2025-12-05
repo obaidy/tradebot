@@ -50,6 +50,30 @@ const MIGRATION_QUERIES: string[] = [
       PRIMARY KEY (client_id, strategy_id)
     );`,
   `CREATE INDEX IF NOT EXISTS idx_client_strategy_allocations_client ON client_strategy_allocations(client_id);`,
+  `CREATE TABLE IF NOT EXISTS client_bots (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      template_key TEXT NOT NULL,
+      exchange_name TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      status TEXT NOT NULL,
+      config_json JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_client_bots_client ON client_bots(client_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_client_bots_status ON client_bots(status);`,
+  `CREATE TABLE IF NOT EXISTS client_bot_events (
+      id BIGSERIAL PRIMARY KEY,
+      client_bot_id TEXT REFERENCES client_bots(id) ON DELETE CASCADE,
+      client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      message TEXT,
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`,
+  `CREATE INDEX IF NOT EXISTS idx_client_bot_events_bot ON client_bot_events(client_bot_id);`,
   `CREATE TABLE IF NOT EXISTS bot_runs (
       run_id TEXT PRIMARY KEY,
       owner TEXT NOT NULL,
@@ -94,6 +118,8 @@ const MIGRATION_QUERIES: string[] = [
       fill_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       raw JSONB
     );`,
+  `ALTER TABLE bot_fills
+      ADD COLUMN IF NOT EXISTS client_bot_id TEXT REFERENCES client_bots(id) ON DELETE SET NULL;`,
   `CREATE TABLE IF NOT EXISTS bot_inventory_snapshots (
       id SERIAL PRIMARY KEY,
       run_id TEXT REFERENCES bot_runs(run_id) ON DELETE CASCADE,
