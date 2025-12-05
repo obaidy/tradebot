@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../../lib/authOptions';
 import { fetchClientPortfolio, fetchClientSnapshot, updateClientPortfolio } from '../../../../lib/adminClient';
 import { getSessionClientId } from '../../../../lib/sessionClient';
+import type { ClientSnapshot } from '../../../../types/portal';
 
 type PortfolioAllocation = {
   strategyId: string;
@@ -87,7 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           res.status(400).json({ error: 'allocation_invalid' });
           return;
         }
-        const snapshot = await fetchClientSnapshot(clientId);
+        const snapshot = (await fetchClientSnapshot(clientId)) as ClientSnapshot | null;
         const bankrollUsd =
           Number(((snapshot?.client?.limits ?? {}) as any)?.risk?.bankrollUsd) ||
           Number((snapshot?.client as any)?.bankrollUsd) ||
